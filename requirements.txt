@@ -1,0 +1,60 @@
+# Core
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+
+# Database
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.9
+
+# Validation
+pydantic[email]==2.9.2
+pydantic-settings==2.5.2
+
+# File upload
+python-multipart==0.0.12
+aiofiles==24.1.0
+
+# Auth & Security
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+
+# Rate Limiting
+slowapi==0.1.9
+
+# File type validation
+python-magic==0.4.27
+# Ubuntu/Debian: sudo apt install libmagic1
+# macOS: brew install libmagic
+
+# AI & Transcription
+openai-whisper
+torch
+# ✅ المكسب الأكبر في السرعة: 3-5× أسرع و VRAM أقل بنفس الدقة.
+# فعّله بـ WHISPER_BACKEND=faster في الـ .env (fallback تلقائي لو مش متثبت)
+faster-whisper>=1.0.0
+
+# Task Queue
+celery==5.4.0
+redis==5.0.8
+
+# Storage
+boto3==1.35.0
+botocore==1.35.0
+
+# HTTP
+httpx==0.27.2
+
+# Utils
+python-dotenv==1.0.1
+email-validator==2.2.0
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+
+# Speaker Diarization (اختياري — فعّله بـ DIARIZATION_ENABLED=true + HF_TOKEN)
+# يتطلب الموافقة على شروط pyannote/speaker-diarization-3.1 على HuggingFace
+# pyannote.audio==3.1.1
+
+# Observability (اختياري — فعّله بضبط SENTRY_DSN في الـ .env)
+# sentry-sdk>=2.0.0
