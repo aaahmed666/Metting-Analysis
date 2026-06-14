@@ -1,0 +1,9 @@
+version: "3.8"
+
+services:
+  backend:
+    build: .
+    container_name: backend-api
+    ports:
+      - "8000:8000"
+    restart: always
