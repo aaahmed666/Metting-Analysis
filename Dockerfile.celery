@@ -19,5 +19,5 @@ RUN mkdir -p storage/meetings/tmp
 RUN mkdir -p /root/.whisper
 
 # Celery بـ solo pool عشان يتجنب مشكلة Numba threading
-CMD ["celery", "-A", "backend.workers.tasks", "worker", \
+CMD ["celery", "-A", "workers.celery_app", "worker", \
      "--loglevel=info", "--concurrency=1", "--pool=solo"]
