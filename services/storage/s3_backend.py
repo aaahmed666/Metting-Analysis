@@ -24,8 +24,14 @@ class S3Storage:
             "s3",
             region_name=s.S3_REGION,
             endpoint_url=s.S3_ENDPOINT_URL,
-            aws_access_key_id=s.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=s.AWS_SECRET_ACCESS_KEY,
+            aws_access_key_id=(
+                s.AWS_ACCESS_KEY_ID.get_secret_value() if s.AWS_ACCESS_KEY_ID else None
+            ),
+            aws_secret_access_key=(
+                s.AWS_SECRET_ACCESS_KEY.get_secret_value()
+                if s.AWS_SECRET_ACCESS_KEY
+                else None
+            ),
         )
 
     def save(self, file_id: str, fileobj: BinaryIO, content_type: str | None) -> StoredFile:

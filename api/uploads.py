@@ -11,10 +11,10 @@ import os
 import tempfile
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
-from config.setting import get_settings
+from config.setting import Settings, get_settings
 from pipeline.processors.media_validator import (
     ValidationError,
     validate_extension,
@@ -34,12 +34,19 @@ _MAGIC_HEADER_BYTES = 2048       # bytes inspected for content-type detection
 async def _stream_to_tempfile(
     file: UploadFile, max_size: int
 ) -> tuple[str, int, bytes]:
-    """
-    Stream an upload to a temp file in fixed-size chunks, enforcing the size
-    cap as we read so an oversized file never gets fully buffered.
+    """Stream an upload to a temp file in fixed-size chunks, enforcing the size
+    cap as we read so an oversized file is never fully buffered.
 
-    Returns (temp_path, total_bytes, header_bytes). The caller owns the temp
-    file and is responsible for deleting it.
+    Args:
+        file: The incoming upload.
+        max_size: Maximum permitted size in bytes.
+
+    Returns:
+        A tuple of (temp_path, total_bytes, header_bytes). The caller owns the
+        temp file and is responsible for deleting it.
+
+    Raises:
+        ValidationError: If the stream exceeds ``max_size``.
     """
     tmp = tempfile.NamedTemporaryFile(delete=False)
     total = 0
@@ -60,9 +67,10 @@ async def _stream_to_tempfile(
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
-async def upload_media(file: UploadFile = File(...)):  # noqa: B008 - FastAPI DI pattern
-    settings = get_settings()
-
+async def upload_media(
+    file: UploadFile = File(...),  # noqa: B008 - FastAPI DI pattern
+    settings: Settings = Depends(get_settings),  # noqa: B008 - FastAPI DI pattern
+) -> dict:
     # Validate the extension up front (cheap, before reading the body).
     try:
         ext = validate_extension(file.filename)
@@ -70,7 +78,7 @@ async def upload_media(file: UploadFile = File(...)):  # noqa: B008 - FastAPI DI
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     file_id = f"{uuid.uuid4().hex}.{ext}"
-    temp_path = None
+    temp_path: str | None = None
     try:
         temp_path, total, header = await _stream_to_tempfile(
             file, settings.MAX_UPLOAD_SIZE
@@ -105,11 +113,15 @@ async def upload_media(file: UploadFile = File(...)):  # noqa: B008 - FastAPI DI
 
 
 @router.get("/media/{file_id}")
-async def get_media(file_id: str):
+async def get_media(
+    file_id: str,
+    settings: Settings = Depends(get_settings),  # noqa: B008 - FastAPI DI pattern
+) -> FileResponse:
     """Serve locally-stored files (S3 uploads return absolute URLs instead)."""
-    settings = get_settings()
     if settings.STORAGE_BACKEND != "local":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Not served by this backend.")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Not served by this backend."
+        )
 
     safe_name = os.path.basename(file_id)  # guard against path traversal
     path = os.path.join(settings.LOCAL_STORAGE_DIR, safe_name)

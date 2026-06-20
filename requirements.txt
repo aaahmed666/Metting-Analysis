@@ -1,60 +1,76 @@
-# Core
+# ─────────────────────────────────────────────────────────────────────────────
+# requirements.txt
+#
+# Split into two sections by HONEST USAGE:
+#   1. RUNTIME — imported by code that actually exists today. Installing these
+#      is sufficient to run the upload + audio-extraction slice end to end.
+#   2. DEFERRED — pinned but NOT yet imported anywhere. These belong to pipeline
+#      modules that are currently empty stubs (LLM clients, Whisper STT,
+#      scoring, DB persistence, auth). Re-enable each line as you implement the
+#      corresponding module, so the image stays lean (torch alone is ~2 GB).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# === 1. RUNTIME (actually imported) ==========================================
+
+# Web framework + ASGI server
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 
-# Database
-sqlalchemy==2.0.35
-psycopg2-binary==2.9.9
+# Settings / validation
+pydantic-settings==2.5.2          # pulls pydantic 2.x as a dependency
 
-# Validation
-pydantic[email]==2.9.2
-pydantic-settings==2.5.2
-
-# File upload
+# Multipart form parsing (required by UploadFile / File)
 python-multipart==0.0.12
-aiofiles==24.1.0
 
-# Auth & Security
-bcrypt==4.0.1
-python-jose[cryptography]==3.3.0
-
-# Rate Limiting
-slowapi==0.1.9
-
-# File type validation
+# Content-type sniffing (imported conditionally in media_validator)
 python-magic==0.4.27
-# Ubuntu/Debian: sudo apt install libmagic1
-# macOS: brew install libmagic
+# System lib required at runtime:
+#   Debian/Ubuntu: apt-get install libmagic1
+#   macOS:         brew install libmagic
 
-# AI & Transcription
-openai-whisper
-torch
-# ✅ المكسب الأكبر في السرعة: 3-5× أسرع و VRAM أقل بنفس الدقة.
-# فعّله بـ WHISPER_BACKEND=faster في الـ .env (fallback تلقائي لو مش متثبت)
-faster-whisper>=1.0.0
-
-# Task Queue
+# Background task queue + broker client
 celery==5.4.0
 redis==5.0.8
 
-# Storage
+# S3 / S3-compatible object storage
 boto3==1.35.0
-botocore==1.35.0
+# botocore is a transitive dependency of boto3; pin only if you need a specific
+# patch level. Left unpinned here to avoid resolver conflicts.
 
-# HTTP
-httpx==0.27.2
-
-# Utils
-python-dotenv==1.0.1
-email-validator==2.2.0
-
-# Testing
+# === DEV / TEST ==============================================================
 pytest==8.3.3
 pytest-asyncio==0.24.0
 
-# Speaker Diarization (اختياري — فعّله بـ DIARIZATION_ENABLED=true + HF_TOKEN)
-# يتطلب الموافقة على شروط pyannote/speaker-diarization-3.1 على HuggingFace
-# pyannote.audio==3.1.1
 
-# Observability (اختياري — فعّله بضبط SENTRY_DSN في الـ .env)
+# === 2. DEFERRED — uncomment when the matching module is implemented =========
+# Nothing below is imported by the current codebase. Leaving them installed
+# bloats the image and gives a false impression of what the service can do.
+
+# --- Database persistence (needed by results_dispatcher: "save to DB") -------
+# sqlalchemy==2.0.35
+# psycopg2-binary==2.9.9
+
+# --- Auth / security (no auth layer exists yet) ------------------------------
+# bcrypt==4.0.1
+# python-jose[cryptography]==3.3.0
+
+# --- Rate limiting (no limiter wired into FastAPI yet) -----------------------
+# slowapi==0.1.9
+
+# --- Speech-to-text (stt_whisper.py is empty) --------------------------------
+# openai-whisper
+# torch                           # ~2 GB; only pull when STT is implemented
+# faster-whisper>=1.0.0           # faster backend; select via WHISPER_BACKEND
+# pyannote.audio==3.1.1           # diarization; requires HF_TOKEN + license
+
+# --- LLM / HTTP clients (groq_client, gemini_client, llm_router are empty) ---
+# httpx==0.27.2
+
+# --- Email notifications (email_notifier.py is empty) ------------------------
+# email-validator==2.2.0          # was previously pulled via pydantic[email]
+
+# --- Async file IO (not currently used) --------------------------------------
+# aiofiles==24.1.0
+
+# --- Observability -----------------------------------------------------------
 # sentry-sdk>=2.0.0

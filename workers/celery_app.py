@@ -6,7 +6,9 @@ Purpose: Constructs and configures the Celery app instance (broker, result
 from celery import Celery
 
 from config.setting import get_settings
+from core.logging import configure_logging
 
+configure_logging()
 settings = get_settings()
 
 celery_app = Celery(
