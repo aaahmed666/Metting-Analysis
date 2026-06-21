@@ -33,9 +33,8 @@ class Settings(BaseSettings):
     # extension. Recommended True in staging/production.
     REQUIRE_MAGIC: bool = False
 
-    # --- Storage backend ---
-    STORAGE_BACKEND: Literal["local", "s3"] = "local"
-    LOCAL_STORAGE_DIR: str = "/tmp/media_uploads"
+    # --- Storage backend (S3-compatible object storage only) ---
+    STORAGE_BACKEND: Literal["s3"] = "s3"
 
     # --- Task queue (Celery / Redis) ---
     CELERY_BROKER_URL: str = "redis://redis:6379/0"
@@ -44,13 +43,13 @@ class Settings(BaseSettings):
     # Working directory for extracted audio + chunks.
     PROCESSING_DIR: str = "/tmp/media_processing"
 
-    # --- S3 / Cloud Storage ---
-    S3_BUCKET: str | None = None
-    S3_REGION: str = "us-east-1"
-    S3_ENDPOINT_URL: str | None = None        # for S3-compatible stores (MinIO, R2)
+    # --- S3 / Cloud Storage (S3-compatible, e.g. Hetzner Object Storage) ---
+    S3_BUCKET: str
+    S3_REGION: str = "hel1"
+    S3_ENDPOINT_URL: str = "https://hel1.your-objectstorage.com"  # S3-compatible store
     S3_PUBLIC_BASE_URL: str | None = None      # CDN / public host override
-    AWS_ACCESS_KEY_ID: SecretStr | None = None
-    AWS_SECRET_ACCESS_KEY: SecretStr | None = None
+    AWS_ACCESS_KEY_ID: SecretStr
+    AWS_SECRET_ACCESS_KEY: SecretStr
 
 
 @lru_cache

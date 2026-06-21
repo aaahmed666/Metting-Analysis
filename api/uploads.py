@@ -12,7 +12,6 @@ import tempfile
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
 
 from config.setting import Settings, get_settings
 from pipeline.processors.media_validator import (
@@ -110,21 +109,3 @@ async def upload_media(
         "content_type": detected_mime or file.content_type,
         "storage": stored.backend,
     }
-
-
-@router.get("/media/{file_id}")
-async def get_media(
-    file_id: str,
-    settings: Settings = Depends(get_settings),  # noqa: B008 - FastAPI DI pattern
-) -> FileResponse:
-    """Serve locally-stored files (S3 uploads return absolute URLs instead)."""
-    if settings.STORAGE_BACKEND != "local":
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Not served by this backend."
-        )
-
-    safe_name = os.path.basename(file_id)  # guard against path traversal
-    path = os.path.join(settings.LOCAL_STORAGE_DIR, safe_name)
-    if not os.path.exists(path):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="File not found.")
-    return FileResponse(path)

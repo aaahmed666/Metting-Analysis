@@ -8,11 +8,12 @@ services:
     container_name: backend-api
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
     volumes:
-      - media_data:/tmp/media_uploads
       - processing_data:/tmp/media_processing
     depends_on:
       - redis
@@ -23,11 +24,12 @@ services:
       context: .
       dockerfile: Dockerfile.celery
     container_name: celery-worker
+    env_file:
+      - .env
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
     volumes:
-      - media_data:/tmp/media_uploads
       - processing_data:/tmp/media_processing
     depends_on:
       - redis
@@ -39,5 +41,4 @@ services:
     restart: always
 
 volumes:
-  media_data:
   processing_data:

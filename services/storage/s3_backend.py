@@ -17,8 +17,6 @@ from services.storage.base import StoredFile
 class S3Storage:
     def __init__(self) -> None:
         s = get_settings()
-        if not s.S3_BUCKET:
-            raise RuntimeError("STORAGE_BACKEND=s3 but S3_BUCKET is not configured.")
         self._settings = s
         self._client = boto3.client(
             "s3",

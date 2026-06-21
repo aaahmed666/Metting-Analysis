@@ -13,6 +13,29 @@ sudo apt-get install -y ffmpeg libmagic1
 brew install ffmpeg libmagic
 ```
 
+## Storage
+
+This service stores all uploaded media in **S3-compatible object storage**
+(configured here for Hetzner Object Storage). There is no local-disk storage
+backend. You must create a bucket in the Hetzner Console first, then put its
+name in `.env` (`S3_BUCKET`).
+
+> Note: `/tmp/media_processing` is still used as scratch space — `ffmpeg`
+> extracts/chunks audio to local temp files before processing. This is not
+> persistent storage; it's working scratch only.
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Required keys: `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`S3_ENDPOINT_URL`, `S3_REGION`. The app will refuse to start if the required
+S3 settings are missing.
+
 ## Virtual environment
 
 ```bash
@@ -34,21 +57,6 @@ celery -A workers.celery_app worker --loglevel=info --pool=solo
 
 # 6. run the tests
 pytest -q
-```
-
-## Configuration
-
-All settings come from the environment or a local `.env` file (see
-`config/setting.py` for the full list). Minimum useful overrides:
-
-```dotenv
-ENVIRONMENT=production
-LOG_LEVEL=INFO
-REQUIRE_MAGIC=true              # enforce content sniffing in prod
-STORAGE_BACKEND=s3
-S3_BUCKET=my-bucket
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
 ```
 
 ## Docker

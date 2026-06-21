@@ -15,7 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p storage/meetings/tmp
 RUN mkdir -p /root/.whisper
 
 # Celery بـ solo pool عشان يتجنب مشكلة Numba threading
