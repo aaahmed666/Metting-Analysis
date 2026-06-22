@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: SecretStr
     AWS_SECRET_ACCESS_KEY: SecretStr
 
+    # OPENAI_API_KEY: SecretStr
+    # WHISPER_MODEL: str = "whisper-1"
+    # WHISPER_LANGUAGE: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

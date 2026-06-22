@@ -9,7 +9,6 @@ import threading
 import webbrowser
 from api.uploads import router as uploads_router
 from config.setting import get_settings
-from core.logging import configure_logging
 from fastapi.middleware.cors import CORSMiddleware
 
 from config.setting import settings
@@ -53,6 +52,8 @@ async def _open_swagger() -> None:
     threading.Timer(
         1.0, lambda: webbrowser.open("http://127.0.0.1:8000/docs")
     ).start()
+
+
 
 
 @app.get("/", tags=["Health"])
