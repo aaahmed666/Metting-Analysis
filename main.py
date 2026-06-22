@@ -3,20 +3,40 @@ Module: Application Entrypoint
 Purpose: Defines and exposes the FastAPI application instance (`app`) that the
          ASGI server (uvicorn) imports and serves.
 """
+from fastapi import FastAPI
 import os
 import threading
 import webbrowser
-
-from fastapi import FastAPI
-
 from api.uploads import router as uploads_router
 from config.setting import get_settings
-from core.logging import configure_logging
+from fastapi.middleware.cors import CORSMiddleware
 
-configure_logging()
+from config.setting import settings
+from app.api.auth import router as auth_router
 
-app = FastAPI(title="Backend API")
+import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router, prefix="/api/v1")
 app.include_router(uploads_router)
 
 
@@ -34,11 +54,13 @@ async def _open_swagger() -> None:
     ).start()
 
 
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {"status": "ok", "service": "backend-api"}
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
+@app.get("/", tags=["Health"])
+async def root():
+    return {"status": "ok", "version": settings.APP_VERSION, "docs": "/docs"}
+
+
+@app.get("/health", tags=["Health"])
+async def health():
     return {"status": "healthy"}
