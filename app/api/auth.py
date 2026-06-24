@@ -85,7 +85,7 @@ async def register(
         supabase_admin.auth.admin.delete_user(str(user.id))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Registration failed: could not save user to database."
+            detail=f"Registration failed: DB error → {str(e)}"
         )
 
     return JSONResponse(status_code=status.HTTP_201_CREATED, content={

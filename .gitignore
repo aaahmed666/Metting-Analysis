@@ -65,3 +65,4 @@ media/
 # Secrets
 secrets.json
 credentials.json
+prompts/opening_script_prompt.py
