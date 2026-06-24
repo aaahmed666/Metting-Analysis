@@ -19,8 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
-# Create storage directories
-RUN mkdir -p storage/meetings/tmp
 
 # Whisper model cache directory
 RUN mkdir -p /root/.whisper
