@@ -5,7 +5,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase import Client, create_client
 
-from config.setting import settings
+from config.setting import get_settings as _get_settings_fn
+
+settings = _get_settings_fn()
 
 logger = logging.getLogger(__name__)
 

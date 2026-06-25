@@ -11,8 +11,10 @@ from api.uploads import router as uploads_router
 from config.setting import get_settings
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.setting import settings
+settings = get_settings()
+
 from app.api.auth import router as auth_router
+from app.api.manager import manager_router
 from app.api.meetings import router as meetings_router
 
 import logging
@@ -37,7 +39,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/api/v1")
+app.include_router(auth_router,   prefix="/api/v1")
+app.include_router(manager_router, prefix="/api/v1")
 app.include_router(meetings_router, prefix="/api/v1")
 app.include_router(uploads_router)
 
