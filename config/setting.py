@@ -68,26 +68,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_ANON_KEY: str
     SUPABASE_SERVICE_KEY: str
-
-    # --- Two-Factor (email code) ---
-    TWO_FACTOR_CODE_TTL_SECONDS: int = 300          # 5 minutes
-    TWO_FACTOR_MAX_ATTEMPTS: int = 5
-    TWO_FACTOR_DEV_BYPASS: bool = True              # accept 000000 outside production
-
-    # --- SMTP (optional). If SMTP_HOST is empty, codes are logged. ---
-    SMTP_HOST: str | None = None
-    SMTP_PORT: int = 587
-    SMTP_USER: str | None = None
-    SMTP_PASSWORD: SecretStr | None = None
-    SMTP_FROM: str = "no-reply@salesintel.local"
-    SMTP_USE_TLS: bool = True
-
-    # --- Frontend base URL (invite / reset links) ---
-    FRONTEND_BASE_URL: str = "http://localhost:3000"
-
-    # --- Invites ---
-    INVITE_TTL_HOURS: int = 72
-
+    
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
 
@@ -95,3 +76,7 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return a process-wide cached Settings instance."""
     return Settings()
+
+
+settings = get_settings()
+

@@ -7,13 +7,14 @@ from fastapi import FastAPI
 import os
 import threading
 import webbrowser
-from api.uploads import router as uploads_router
+from app.api.uploads import router as uploads_router
 from config.setting import get_settings
 from fastapi.middleware.cors import CORSMiddleware
 
 from config.setting import settings
 from app.api.auth import router as auth_router
 from app.api.meetings import router as meetings_router
+from app.api.invitations import router as invitations_router
 
 import logging
 
@@ -39,7 +40,9 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(meetings_router, prefix="/api/v1")
+app.include_router(invitations_router, prefix="/api/v1")
 app.include_router(uploads_router)
+
 
 
 @app.on_event("startup")
