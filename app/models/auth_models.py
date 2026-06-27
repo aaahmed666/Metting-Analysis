@@ -110,7 +110,6 @@ class InviteUserRequest(BaseModel):
 
 
 class AcceptInviteRequest(BaseModel):
-    token: str
     full_name: str
     password: str
 

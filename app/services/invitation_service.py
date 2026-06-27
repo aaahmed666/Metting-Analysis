@@ -2,8 +2,9 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from supabase import Client, AuthApiError
+from supabase import Client, AuthApiError, create_client
 
+from config.setting import settings
 from app.repositories.user_repository import UserRepository
 from app.repositories.invitation_repository import InvitationRepository
 from app.models.auth_models import InviteUserRequest, AcceptInviteRequest
@@ -51,11 +52,33 @@ class InvitationService:
         # 3. Revoke any active pending invites for this email within the organization
         self.invite_repo.revoke_pending_invitations(request.email, sender_org_id)
 
-        # 4. Generate a secure token and a 48-hour expiration date
+        # 4. Invite user via Supabase Auth
+        try:
+            auth_response = self.supabase_admin.auth.admin.invite_user_by_email(
+                request.email,
+                {
+                    "data": {
+                        "role": request.role,
+                        "org_id": sender_org_id,
+                        "team_id": request.team_id,
+                    }
+                }
+            )
+            invited_user = auth_response.user
+            if not invited_user:
+                raise Exception("Supabase invite response did not contain user details.")
+        except AuthApiError as e:
+            logger.error(f"Supabase auth invitation failed: {e.message}")
+            raise ValueError(f"Failed to invite user via Supabase: {e.message}")
+        except Exception as e:
+            logger.error(f"Auth user invitation error: {e}")
+            raise ValueError("Failed to invite user via Supabase.")
+
+        # 5. Generate a secure placeholder token and a 48-hour expiration date to satisfy database schema constraints
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=48)
 
-        # 5. Create invitation record in the database
+        # 6. Create invitation record in the database mapping the Supabase Auth UUID to the record's ID
         invite = self.invite_repo.create_invitation(
             org_id=sender_org_id,
             email=request.email,
@@ -63,28 +86,25 @@ class InvitationService:
             token=token,
             invited_by=sender_id,
             expires_at=expires_at,
-            team_id=request.team_id
+            team_id=request.team_id,
+            invitation_id=str(invited_user.id)
         )
 
-        logger.info(f"Simulated invite email sent to {request.email} with token {token}")
+        logger.info(f"Native Supabase invitation sent to {request.email}")
 
         return {
             "success": True,
             "message": "Invitation sent successfully.",
             "invitation_id": invite["id"],
-            "token": token,  # Return token for integration test purposes
         }
 
-    def verify_invitation_token(self, token: str) -> dict:
+    def verify_invitation_by_user(self, current_user: dict) -> dict:
         """
-        Validates if the invitation token exists, is pending, and has not expired.
+        Validates if a pending invitation exists for the authenticated user and has not expired.
         """
-        invite = self.invite_repo.get_invitation_by_token(token)
+        invite = self.invite_repo.get_pending_invitation_by_id(current_user["user_id"])
         if not invite:
-            raise ValueError("Invalid invitation token.")
-
-        if invite["status"] != "pending":
-            raise ValueError(f"Invitation has already been {invite['status']}.")
+            raise ValueError("No pending invitation found for this user.")
 
         # Check expiration date (handling ISO timestamp string)
         expires_at_str = invite["expires_at"]
@@ -96,63 +116,60 @@ class InvitationService:
 
         return invite
 
-    def accept_invitation(self, request: AcceptInviteRequest) -> dict:
+    def accept_invitation(self, current_user: dict, full_name: str, password: str) -> dict:
         """
-        Accepts the invitation, creates Supabase auth credentials,
+        Accepts the invitation using the authenticated user's session,
+        updates the password using a user-scoped client,
         and creates a database record in public.Users.
         """
-        # 1. Verify invitation token validity
-        invite = self.verify_invitation_token(request.token)
+        # 1. Verify invitation validity
+        invite = self.verify_invitation_by_user(current_user)
         email = invite["email"]
         role = invite["requested_role"]
         org_id = invite["org_id"]
         team_id = invite.get("team_id")
 
-        # 2. Check if user already exists
+        # 2. Check if user already exists in public.Users
         existing_user = self.user_repo.get_user_by_email(email)
         if existing_user:
             self.invite_repo.update_invitation_status(invite["id"], "revoked")
             raise ValueError("User with this email is already registered.")
 
-        # 3. Create user in Supabase Auth
-        user = None
+        # 3. Update user credentials in Supabase Auth using a fresh user-scoped client
         try:
-            auth_response = self.supabase_admin.auth.admin.create_user({
-                "email": email,
-                "password": request.password,
-                "email_confirm": True,
-                "user_metadata": {
-                    "full_name": request.full_name,
-                    "role": role,
+            # We initialize a new client instance rather than utilizing get_supabase_client
+            # to avoid mutating a shared lru_cache client instance's credentials.
+            user_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+            user_client.auth.set_session(access_token=current_user["token"], refresh_token=current_user["token"])
+            
+            auth_response = user_client.auth.update_user({
+                "password": password,
+                "data": {
+                    "full_name": full_name,
                 }
             })
             user = auth_response.user
             if not user:
-                raise Exception("Auth user creation failed.")
+                raise Exception("Auth user update failed.")
         except AuthApiError as e:
             raise ValueError(f"Registration failed: {e.message}")
         except Exception as e:
-            logger.error(f"Auth user creation error: {e}")
-            raise ValueError("Registration failed: could not create credentials.")
+            logger.error(f"Auth user update error: {e}")
+            raise ValueError("Registration failed: could not update credentials.")
 
         # 4. Create user profile record in public.Users
         try:
             db_user = self.user_repo.create_user(
-                user_id=str(user.id),
+                user_id=current_user["user_id"],
                 org_id=org_id,
                 email=email,
-                full_name=request.full_name,
+                full_name=full_name,
                 role=role,
                 is_active=True,
                 team_id=team_id
             )
         except Exception as e:
-            # ROLLBACK: delete created auth user
-            logger.error(f"DB user insert failed, rolling back auth user: {e}")
-            try:
-                self.supabase_admin.auth.admin.delete_user(str(user.id))
-            except Exception as rollback_err:
-                logger.error(f"Failed to delete auth user during rollback: {rollback_err}")
+            logger.error(f"DB user insert failed: {e}")
             raise ValueError("Registration failed: could not map user record in database.")
 
         # 5. Mark invitation as accepted
@@ -175,3 +192,4 @@ class InvitationService:
                 "role": db_user["role"]
             }
         }
+

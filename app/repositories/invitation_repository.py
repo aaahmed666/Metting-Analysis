@@ -17,7 +17,8 @@ class InvitationRepository:
         token: str,
         invited_by: str,
         expires_at: datetime,
-        team_id: Optional[str] = None
+        team_id: Optional[str] = None,
+        invitation_id: Optional[str] = None
     ) -> dict:
         """
         Inserts a new pending invitation record.
@@ -33,12 +34,27 @@ class InvitationRepository:
         }
         if team_id is not None:
             db_record["team_id"] = team_id
+        if invitation_id is not None:
+            db_record["id"] = invitation_id
 
         response = self.client.table("Invitations").insert(db_record).execute()
         if not response.data:
             raise Exception("Failed to insert invitation record into the database.")
             
         return response.data[0]
+
+    def get_pending_invitation_by_id(self, invitation_id: str) -> Optional[dict]:
+        """
+        Queries a pending invitation record by its ID (which matches the user's Auth UUID).
+        """
+        response = self.client.table("Invitations")\
+            .select("*")\
+            .eq("id", invitation_id)\
+            .eq("status", "pending")\
+            .execute()
+        if response.data:
+            return response.data[0]
+        return None
 
     def get_invitation_by_token(self, token: str) -> Optional[dict]:
         """

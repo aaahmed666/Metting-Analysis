@@ -35,15 +35,15 @@ async def send_invitation(
 
 @router.get("/verify", summary="Verify if an invitation token is valid")
 async def verify_invitation(
-    token: str,
+    current_user: dict = Depends(get_current_user),
     supabase_admin: Client = Depends(get_supabase_admin_client),
 ):
     """
-    Checks if the invitation token is valid, has not expired, and has not been used.
+    Checks if the current authenticated user has a valid pending invitation.
     """
     invitation_service = InvitationService(supabase_admin)
     try:
-        invite = invitation_service.verify_invitation_token(token)
+        invite = invitation_service.verify_invitation_by_user(current_user)
         return JSONResponse(status_code=status.HTTP_200_OK, content={
             "success": True,
             "email": invite["email"],
@@ -60,14 +60,19 @@ async def verify_invitation(
 @router.post("/accept", summary="Accept invitation and complete onboarding")
 async def accept_invitation(
     request: AcceptInviteRequest,
+    current_user: dict = Depends(get_current_user),
     supabase_admin: Client = Depends(get_supabase_admin_client),
 ):
     """
-    Registers the invited user based on their valid token, completing onboarding.
+    Registers the invited user based on their authenticated session, completing onboarding.
     """
     invitation_service = InvitationService(supabase_admin)
     try:
-        result = invitation_service.accept_invitation(request)
+        result = invitation_service.accept_invitation(
+            current_user=current_user,
+            full_name=request.full_name,
+            password=request.password
+        )
         return JSONResponse(status_code=status.HTTP_200_OK, content=result)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

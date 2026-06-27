@@ -120,6 +120,8 @@ def test_send_invitation_rbac_manager(mock_supabase_client):
     invitation_service = InvitationService(mock_supabase_client)
     sender = {"role": "manager", "org_id": "org-1", "user_id": "user-manager"}
     
+    mock_supabase_client.auth.admin.invite_user_by_email.return_value.user = MagicMock(id="mock-user-uuid")
+    
     with patch.object(invitation_service.user_repo, 'get_user_by_email', return_value=None), \
          patch.object(invitation_service.invite_repo, 'revoke_pending_invitations'), \
          patch.object(invitation_service.invite_repo, 'create_invitation', return_value={"id": "invite-1"}) as mock_create_invite:
@@ -133,6 +135,8 @@ def test_send_invitation_rbac_manager(mock_supabase_client):
 def test_send_invitation_rbac_admin_success(mock_supabase_client):
     invitation_service = InvitationService(mock_supabase_client)
     sender = {"role": "admin", "org_id": "org-1", "user_id": "user-admin"}
+    
+    mock_supabase_client.auth.admin.invite_user_by_email.return_value.user = MagicMock(id="mock-user-uuid")
     
     with patch.object(invitation_service.user_repo, 'get_user_by_email', return_value=None), \
          patch.object(invitation_service.invite_repo, 'revoke_pending_invitations'), \
@@ -169,7 +173,7 @@ def test_send_invitation_missing_org_id(mock_supabase_client):
     with pytest.raises(ValueError, match="Sender does not belong to any organization"):
         invitation_service.send_invitation(sender, request)
 
-def test_verify_invitation_token_expired(mock_supabase_client):
+def test_verify_invitation_expired(mock_supabase_client):
     invitation_service = InvitationService(mock_supabase_client)
     expired_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     mock_invite = {
@@ -181,18 +185,18 @@ def test_verify_invitation_token_expired(mock_supabase_client):
         "expires_at": expired_time
     }
     
-    with patch.object(invitation_service.invite_repo, 'get_invitation_by_token', return_value=mock_invite), \
+    with patch.object(invitation_service.invite_repo, 'get_pending_invitation_by_id', return_value=mock_invite), \
          patch.object(invitation_service.invite_repo, 'update_invitation_status') as mock_update_status:
          
         with pytest.raises(ValueError, match="Invitation token has expired"):
-            invitation_service.verify_invitation_token("expired-token")
+            invitation_service.verify_invitation_by_user({"user_id": "invite-1"})
             
         mock_update_status.assert_called_once_with("invite-1", "expired")
 
 def test_accept_invitation_success(mock_supabase_client):
     invitation_service = InvitationService(mock_supabase_client)
     mock_invite = {
-        "id": "invite-1",
+        "id": "mock-user-uuid",
         "email": "test@acme.com",
         "requested_role": "sales_rep",
         "org_id": "org-1",
@@ -200,9 +204,12 @@ def test_accept_invitation_success(mock_supabase_client):
         "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     }
     
-    mock_supabase_client.auth.admin.create_user.return_value.user = MagicMock(id="mock-user-uuid")
+    mock_user_client = MagicMock()
+    mock_user_client.auth = MagicMock()
+    mock_user_client.auth.update_user.return_value.user = MagicMock(id="mock-user-uuid")
     
-    with patch.object(invitation_service, 'verify_invitation_token', return_value=mock_invite), \
+    with patch("app.services.invitation_service.create_client", return_value=mock_user_client), \
+         patch.object(invitation_service, 'verify_invitation_by_user', return_value=mock_invite), \
          patch.object(invitation_service.user_repo, 'get_user_by_email', return_value=None), \
          patch.object(invitation_service.user_repo, 'create_user', return_value={
              "id": "mock-user-uuid",
@@ -212,15 +219,20 @@ def test_accept_invitation_success(mock_supabase_client):
          }) as mock_create_user, \
          patch.object(invitation_service.invite_repo, 'update_invitation_status') as mock_update_status:
          
-        request = AcceptInviteRequest(
-            token="valid-token",
+        current_user = {
+            "user_id": "mock-user-uuid",
+            "email": "test@acme.com",
+            "token": "valid-jwt-token"
+        }
+        
+        res = invitation_service.accept_invitation(
+            current_user=current_user,
             full_name="Jane Doe",
             password="newpassword123"
         )
-        
-        res = invitation_service.accept_invitation(request)
         
         assert res["success"] is True
         assert res["user"]["email"] == "test@acme.com"
         mock_create_user.assert_called_once()
         mock_update_status.assert_called_once()
+        mock_user_client.auth.update_user.assert_called_once()
