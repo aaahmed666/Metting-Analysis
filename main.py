@@ -17,6 +17,7 @@ from app.api.auth import router as auth_router
 from app.api.manager import manager_router
 from app.api.meetings import router as meetings_router
 from app.api.invitations import router as invitations_router
+from app.api.webhooks import router as webhooks_router
 
 import logging
 
@@ -44,6 +45,7 @@ app.include_router(auth_router,   prefix="/api/v1")
 app.include_router(manager_router, prefix="/api/v1")
 app.include_router(meetings_router, prefix="/api/v1")
 app.include_router(invitations_router, prefix="/api/v1")
+app.include_router(webhooks_router)
 app.include_router(uploads_router)
 
 

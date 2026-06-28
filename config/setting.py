@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
+    # --- Zoom Webhook ---
+    # Secret Token from Zoom Marketplace → App → Features → Webhooks.
+    ZOOM_WEBHOOK_SECRET_TOKEN: SecretStr = SecretStr("")
 
 @lru_cache
 def get_settings() -> Settings:
