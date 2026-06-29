@@ -33,6 +33,7 @@ from app.models.manager_models import (
     TeamCreateRequest,
     TeamUpdateRequest,
 )
+from app.repositories.manager_repository import ManagerRepository
 
 logger = logging.getLogger(__name__)
 
@@ -43,39 +44,24 @@ router = APIRouter(prefix="/manager/teams", tags=["Manager – Teams"])
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_caller_org(current_user: dict, supabase: Client) -> str:
-    """Return the org_id of the calling user from the Users table."""
-    response = (
-        supabase.table("Users")
-        .select("org_id")
-        .eq("id", current_user["user_id"])
-        .single()
-        .execute()
-    )
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Caller not found in Users table.",
-        )
-    return response.data["org_id"]
-
-
 def _assert_team_belongs_to_org(team_id: str, org_id: str, supabase: Client) -> dict:
-    """Fetch a team and verify it belongs to the caller's org."""
+    """Fetch a team and verify it belongs to the caller's org.
+    """
     response = (
         supabase.table("Teams")
         .select("*")
         .eq("id", team_id)
         .eq("org_id", org_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    if not response.data:
+    data = response.data if response else None
+    if not data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Team not found or you do not have access to it.",
         )
-    return response.data
+    return data
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -91,7 +77,7 @@ async def list_teams(
     Returns all teams inside the caller's organisation.
     Admins see every team; managers see teams where they are manager_id.
     """
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
 
     query = supabase.table("Teams").select("*").eq("org_id", org_id)
 
@@ -118,7 +104,7 @@ async def create_team(
     Creates a team inside the caller's organisation.
     The calling manager is automatically set as manager_id.
     """
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
 
     # Guard: team name must be unique within the org.
     exists = (
@@ -164,7 +150,7 @@ async def get_team(
     supabase: Client = Depends(get_supabase_admin_client),
 ):
     """Returns team metadata and a list of its members."""
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     team   = _assert_team_belongs_to_org(team_id, org_id, supabase)
 
     members_response = (
@@ -204,7 +190,7 @@ async def update_team(
     supabase: Client = Depends(get_supabase_admin_client),
 ):
     """Updates the team name. Duplicate names within the org are rejected."""
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     _assert_team_belongs_to_org(team_id, org_id, supabase)
 
     # Guard: new name must be unique within the org (excluding this team).
@@ -253,7 +239,7 @@ async def delete_team(
     """
     Deletes a team. Refuses if there are still active members assigned to it.
     """
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     _assert_team_belongs_to_org(team_id, org_id, supabase)
 
     # Guard: cannot delete a team that still has members.
@@ -293,7 +279,7 @@ async def list_team_members(
     supabase: Client = Depends(get_supabase_admin_client),
 ):
     """Returns all active users whose team_id matches."""
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     _assert_team_belongs_to_org(team_id, org_id, supabase)
 
     response = (
@@ -334,7 +320,7 @@ async def assign_member(
     Assigns a pre-existing user (already in the Users table) to this team.
     The user must belong to the same org as the manager.
     """
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     _assert_team_belongs_to_org(team_id, org_id, supabase)
 
     # Verify target user exists in same org and is not already in another team.
@@ -343,10 +329,10 @@ async def assign_member(
         .select("id, full_name, email, role, team_id, is_active")
         .eq("id", body.user_id)
         .eq("org_id", org_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    if not user_resp.data:
+    if not (user_resp and user_resp.data):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found in your organisation.",
@@ -391,7 +377,7 @@ async def remove_member(
     Clears team_id on the target user (sets it to NULL).
     Does NOT deactivate or delete the user account.
     """
-    org_id = _get_caller_org(current_user, supabase)
+    org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     _assert_team_belongs_to_org(team_id, org_id, supabase)
 
     # Make sure the user actually belongs to this team.
@@ -400,10 +386,10 @@ async def remove_member(
         .select("id, full_name, team_id")
         .eq("id", user_id)
         .eq("org_id", org_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    if not user_resp.data:
+    if not (user_resp and user_resp.data):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found in your organisation.",
