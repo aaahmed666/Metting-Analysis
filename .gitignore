@@ -66,3 +66,7 @@ media/
 secrets.json
 credentials.json
 prompts/opening_script_prompt.py
+
+
+credentials
+*.tmp

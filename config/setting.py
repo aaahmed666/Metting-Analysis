@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: SecretStr
     AWS_SECRET_ACCESS_KEY: SecretStr
 
-    # OPENAI_API_KEY: SecretStr
-    # WHISPER_MODEL: str = "whisper-1"
-    # WHISPER_LANGUAGE: str | None = None
+    OPENAI_API_KEY: SecretStr
+    WHISPER_MODEL: str = "whisper-1"
+    WHISPER_LANGUAGE: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_ANON_KEY: str
     SUPABASE_SERVICE_KEY: str
+    
+    GOOGLE_APPLICATION_CREDENTIALS: str | None = None
+    GOOGLE_PROJECT_ID: str | None = None
+    VERTEX_AI_REGION: str = "us-central1"
+    VERTEX_AI_MODEL: str = "gemini-2.5-flash"
     
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
