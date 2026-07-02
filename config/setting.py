@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     WHISPER_MODEL: str = "whisper-1"
     WHISPER_LANGUAGE: str | None = None
 
+    # --- LLM providers (insights generation) ---
+    GEMINI_API_KEY: SecretStr = SecretStr("")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
