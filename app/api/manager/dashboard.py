@@ -6,6 +6,7 @@ Purpose: Exposes endpoints for the team manager to view team meetings,
 Endpoints
 ─────────
 GET  /manager/meetings                     → list all meetings for all team members
+GET  /manager/meetings/rejected            → list rejected meetings with rejection reasons
 GET  /manager/meetings/{meeting_id}        → get full meeting details + AI report
 GET  /manager/dashboard/kpis              → team-wide KPI metrics
 GET  /manager/dashboard/leaderboard       → rep ranking sorted by avg score
@@ -15,7 +16,6 @@ Access control
 • require_manager → both "manager" and "admin" roles may call these endpoints.
 • A manager only sees meetings belonging to their own team members.
 • An admin sees all meetings in the org (all teams).
-
 """
 from __future__ import annotations
 
@@ -96,6 +96,76 @@ async def list_team_meetings(
 
     logger.info(
         "Manager %s fetched %d meetings (total=%d)",
+        current_user["email"], len(meetings), total,
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "meetings": meetings,
+        },
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Route: List Rejected Meetings
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/meetings/rejected",
+    summary="List rejected meetings with rejection reasons",
+)
+async def list_rejected_meetings(
+    limit: int = Query(default=20, ge=1, le=100, description="Number of results per page"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    current_user: dict = Depends(require_manager),
+    supabase: Client = Depends(get_supabase_admin_client),
+):
+    """
+    Returns a paginated list of all rejected meetings for the manager's team.
+
+    Each entry includes:
+    - meeting basic info (id, date, source, duration)
+    - rejection_reason : why the meeting was rejected
+    - rep name and email
+
+    Useful for the manager to review upload failures and follow up with reps.
+    """
+    repo = ManagerRepository(supabase)
+    org_id = repo.get_caller_org(current_user["user_id"])
+    member_ids = repo.resolve_member_ids(
+        user_id=current_user["user_id"],
+        role=current_user["role"],
+        org_id=org_id,
+    )
+
+    if not member_ids:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "total": 0,
+                "limit": limit,
+                "offset": offset,
+                "meetings": [],
+                "message": "No team members found.",
+            },
+        )
+
+    meetings = repo.get_meetings_for_members(
+        member_ids=member_ids,
+        status="rejected",
+        limit=limit,
+        offset=offset,
+    )
+    total = repo.count_meetings_for_members(member_ids=member_ids, status="rejected")
+
+    logger.info(
+        "Manager %s fetched %d rejected meetings (total=%d)",
         current_user["email"], len(meetings), total,
     )
 
