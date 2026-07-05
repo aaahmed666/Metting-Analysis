@@ -19,8 +19,8 @@ TARGET_SAMPLE_RATE = 16000
 TARGET_CHANNELS = 1
 
 # Chunking policy: only split files longer than this, into chunks of this size.
-CHUNK_THRESHOLD_SECONDS = 10 * 60  # 10 minutes
-CHUNK_LENGTH_SECONDS = 5 * 60      # 5 minutes
+CHUNK_THRESHOLD_SECONDS = 0.5 * 60  # 30 seconds 
+CHUNK_LENGTH_SECONDS = 0.5 * 60      # 30 seconds
 
 
 class FFmpegError(Exception):

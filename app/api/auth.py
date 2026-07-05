@@ -11,7 +11,10 @@ from app.models.auth_models import (
     RefreshRequest,
     RegisterRequest,
     UpdatePasswordRequest,
+    OrganizationRegisterRequest,
 )
+from app.services.auth_service import AuthService
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,67 +36,20 @@ def _build_user_data(user, session=None) -> dict:
     return data
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED, summary="Register a new user")
-async def register(
-    request: RegisterRequest,
+@router.post("/organization/register", status_code=status.HTTP_201_CREATED, summary="Register a new organization and manager")
+async def register_organization(
+    request: OrganizationRegisterRequest,
     supabase_admin: Client = Depends(get_supabase_admin_client),
 ):
-    # Step 1: Create user in Supabase Auth
+    auth_service = AuthService(supabase_admin)
     try:
-        response = supabase_admin.auth.admin.create_user({
-            "email":         request.email,
-            "password":      request.password,
-            "email_confirm": True,
-            "user_metadata": {
-                "full_name": request.full_name,
-                "role":      request.role,
-            },
-        })
-
-        user = response.user
-        if not user:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Registration failed.")
-
-    except AuthApiError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
-    except HTTPException:
-        raise
+        result = auth_service.register_organization(request)
+        return JSONResponse(status_code=status.HTTP_201_CREATED, content=result)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"Auth user creation error: {e}")
+        logger.error(f"Organization registration failed: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Registration failed.")
-
-    # Step 2: Insert into public.Users
-    try:
-        db_record = {
-            "id":        str(user.id),
-            "org_id":    request.org_id,
-            "full_name": request.full_name,
-            "email":     request.email,
-            "role":      request.role,
-            "is_active": True,
-        }
-
-        if request.team_id:
-            db_record["team_id"] = request.team_id
-
-        supabase_admin.table("Users").insert(db_record).execute()
-        logger.info(f"User inserted into public.Users: {user.email} | role: {request.role}")
-
-    except Exception as e:
-        # Rollback: delete the auth user if DB insert fails
-        logger.error(f"DB insert failed, rolling back auth user: {e}")
-        supabase_admin.auth.admin.delete_user(str(user.id))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Registration failed: could not save user to database."
-        )
-
-    return JSONResponse(status_code=status.HTTP_201_CREATED, content={
-        "success": True,
-        "message": "User registered successfully.",
-        "user":    _build_user_data(user),
-    })
-
 
 @router.post("/login", summary="Login and get JWT tokens")
 async def login(

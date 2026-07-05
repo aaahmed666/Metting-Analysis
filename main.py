@@ -7,12 +7,18 @@ from fastapi import FastAPI
 import os
 import threading
 import webbrowser
-from api.uploads import router as uploads_router
+from app.api.uploads import router as uploads_router
 from config.setting import get_settings
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.setting import settings
+settings = get_settings()
+
 from app.api.auth import router as auth_router
+from app.api.manager import manager_router
+from app.api.meetings import router as meetings_router
+from app.api.invitations import router as invitations_router
+from app.api.webhooks import router as webhooks_router
+from app.api.rep.meetings import router as rep_meetings_router
 
 import logging
 
@@ -36,8 +42,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/api/v1")
+app.include_router(auth_router,   prefix="/api/v1")
+app.include_router(manager_router, prefix="/api/v1")
+app.include_router(meetings_router, prefix="/api/v1")
+app.include_router(invitations_router, prefix="/api/v1")
+app.include_router(webhooks_router)
 app.include_router(uploads_router)
+app.include_router(rep_meetings_router, prefix="/api/v1")
+
 
 
 @app.on_event("startup")
@@ -52,8 +64,6 @@ async def _open_swagger() -> None:
     threading.Timer(
         1.0, lambda: webbrowser.open("http://127.0.0.1:8000/docs")
     ).start()
-
-
 
 
 @app.get("/", tags=["Health"])

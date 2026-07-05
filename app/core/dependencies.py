@@ -5,7 +5,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase import Client, create_client
 
-from config.setting import settings
+from config.setting import get_settings as _get_settings_fn
+
+settings = _get_settings_fn()
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +49,22 @@ async def get_current_user(
             )
 
         role: str = (user.user_metadata or {}).get("role", "sales_rep")
+        org_id = None
+
+        try:
+            db_user_res = admin_client.table("Users").select("org_id, role").eq("id", str(user.id)).execute()
+            if db_user_res.data:
+                db_user = db_user_res.data[0]
+                org_id = db_user.get("org_id")
+                role = db_user.get("role", role)
+        except Exception as db_exc:
+            logger.error(f"Error fetching user profile from database: {db_exc}")
 
         return {
             "user_id": str(user.id),
             "email":   user.email,
             "role":    role,
+            "org_id":  org_id,
             "token":   token,
         }
 

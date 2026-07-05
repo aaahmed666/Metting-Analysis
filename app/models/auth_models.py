@@ -1,16 +1,21 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
+from typing import Optional, Literal
+
 
 ALLOWED_ROLES = {"sales_rep", "manager", "admin"}
 
 
+# ---------------------------------------------------------------------------
+# Register
+# ---------------------------------------------------------------------------
 class RegisterRequest(BaseModel):
+
     email: EmailStr
     password: str
     full_name: str
     role: str = "sales_rep"
-    org_id: str           # UUID of the Organization this user belongs to
-    team_id: Optional[str] = None  # optional — assign to team later
+    org_id: str
+    team_id: Optional[str] = None
 
     @field_validator("password")
     @classmethod
@@ -38,7 +43,7 @@ class RefreshRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
-    redirect_to: Optional[str] = None  # URL to redirect after reset (Next.js page)
+    redirect_to: Optional[str] = None
 
 
 class UpdatePasswordRequest(BaseModel):
@@ -54,6 +59,9 @@ class UpdatePasswordRequest(BaseModel):
         return v
 
 
+# ---------------------------------------------------------------------------
+# Responses (unchanged shape — tokens nested in `user`)
+# ---------------------------------------------------------------------------
 class UserResponse(BaseModel):
     user_id: str
     email: str
@@ -70,3 +78,45 @@ class AuthResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: Optional[int] = None
+
+
+class OrganizationRegisterRequest(BaseModel):
+    org_name: str
+    industry_context: Optional[Literal["restaurants", "clinics", "retail", "other"]] = None
+    manager_name: str
+    manager_email: EmailStr
+    manager_password: str
+
+    @field_validator("manager_password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+        return v
+
+
+class InviteUserRequest(BaseModel):
+    email: EmailStr
+    role: str
+    team_id: Optional[str] = None
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v: str) -> str:
+        allowed = {"admin", "sales_rep"}
+        if v not in allowed:
+            raise ValueError(f"Role must be one of: {', '.join(sorted(allowed))}")
+        return v
+
+
+class AcceptInviteRequest(BaseModel):
+    full_name: str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+        return v
+
