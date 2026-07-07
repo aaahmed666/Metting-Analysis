@@ -291,6 +291,33 @@ def run_analysis_pipeline_task(self, payload: dict) -> dict:
             result.get("transcript_count", 0),
             result.get("signal_count", 0),
         )
+
+        try:
+            meeting_resp = supabase.table("Meetings").select("user_id").eq("id", meeting_id).maybe_single().execute()
+            if meeting_resp and meeting_resp.data:
+                uid = meeting_resp.data.get("user_id")
+                user_resp = supabase.table("Users").select("email, full_name").eq("id", uid).maybe_single().execute()
+                if user_resp and user_resp.data:
+                    email_to = user_resp.data.get("email")
+                    rep_name = user_resp.data.get("full_name") or "Sales Rep"
+
+                    report_data = None
+                    report_id = result.get("report_id")
+                    if report_id:
+                        rep_data_resp = supabase.table("Meeting_Reports").select("total_score, grade, executive_summary").eq("id", report_id).maybe_single().execute()
+                        report_data = rep_data_resp.data if rep_data_resp else None
+
+                    from services.integrations.email_notifier import send_meeting_analysis_email
+                    send_meeting_analysis_email(
+                        email_to=email_to,
+                        rep_name=rep_name,
+                        meeting_id=meeting_id,
+                        status="completed",
+                        report_data=report_data,
+                    )
+        except Exception as mail_exc:
+            logger.error("Failed to send success email for meeting_id=%s: %s", meeting_id, mail_exc)
+
         return result
 
     except Exception as exc:
@@ -299,6 +326,31 @@ def run_analysis_pipeline_task(self, payload: dict) -> dict:
             meeting_id,
             exc,
         )
+        if self.request.retries >= self.max_retries:
+            try:
+                from supabase import create_client
+                supabase = create_client(
+                    settings.SUPABASE_URL,
+                    settings.SUPABASE_SERVICE_KEY,
+                )
+                meeting_resp = supabase.table("Meetings").select("user_id").eq("id", meeting_id).maybe_single().execute()
+                if meeting_resp and meeting_resp.data:
+                    uid = meeting_resp.data.get("user_id")
+                    user_resp = supabase.table("Users").select("email, full_name").eq("id", uid).maybe_single().execute()
+                    if user_resp and user_resp.data:
+                        email_to = user_resp.data.get("email")
+                        rep_name = user_resp.data.get("full_name") or "Sales Rep"
+                        from services.integrations.email_notifier import send_meeting_analysis_email
+                        send_meeting_analysis_email(
+                            email_to=email_to,
+                            rep_name=rep_name,
+                            meeting_id=meeting_id,
+                            status="failed",
+                            rejection_reason=str(exc),
+                        )
+            except Exception as mail_exc:
+                logger.error("Failed to send failure email for meeting_id=%s: %s", meeting_id, mail_exc)
+
         raise self.retry(exc=exc, countdown=30) from exc
 
     finally:

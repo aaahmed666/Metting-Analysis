@@ -270,6 +270,65 @@ async def upload_meeting(
 
 
 # ---------------------------------------------------------------------------
+# GET /rep/meetings
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "",
+    summary="List representative's meetings",
+    description="Retrieve a list of all meetings owned by the authenticated representative, including summary scores.",
+)
+async def list_meetings(
+    current_user: dict = Depends(_require_sales_rep),
+    supabase: Client = Depends(get_supabase_admin_client),
+):
+    user_id = current_user["user_id"]
+    repo = MeetingRepository(supabase)
+    try:
+        meetings = repo.list_user_meetings(user_id)
+        return {
+            "success": True,
+            "total": len(meetings),
+            "meetings": meetings,
+        }
+    except Exception as exc:
+        logger.error("list_meetings: failed for user=%s: %s", user_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve meetings list.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# GET /rep/meetings/team-comparison
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/team-comparison",
+    summary="Compare user scores to team averages",
+    description="Compare the representative's overall and pillar scores to their team's averages.",
+)
+async def get_team_comparison(
+    current_user: dict = Depends(_require_sales_rep),
+    supabase: Client = Depends(get_supabase_admin_client),
+):
+    user_id = current_user["user_id"]
+    repo = MeetingRepository(supabase)
+    try:
+        stats = repo.get_team_comparison_stats(user_id)
+        return {
+            "success": True,
+            **stats,
+        }
+    except Exception as exc:
+        logger.error("get_team_comparison: failed for user=%s: %s", user_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve team comparison statistics.",
+        )
+
+
+# ---------------------------------------------------------------------------
 # GET /rep/meetings/{meeting_id}  — status polling
 # ---------------------------------------------------------------------------
 
@@ -322,8 +381,47 @@ async def get_meeting_status(
 
 
 # ---------------------------------------------------------------------------
+# GET /rep/meetings/{meeting_id}/report
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/{meeting_id}/report",
+    summary="Get detailed meeting report",
+    description="Retrieve the full AI-generated report and pillar scores for a specific meeting.",
+)
+async def get_report(
+    meeting_id: str,
+    current_user: dict = Depends(_require_sales_rep),
+    supabase: Client = Depends(get_supabase_admin_client),
+):
+    user_id = current_user["user_id"]
+    repo = MeetingRepository(supabase)
+    try:
+        report = repo.get_meeting_report(meeting_id, user_id)
+    except Exception as exc:
+        logger.error("get_report: lookup failed meeting_id=%s user=%s: %s", meeting_id, user_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve meeting report.",
+        )
+
+    if not report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Report not found or you do not have access.",
+        )
+
+    return {
+        "success": True,
+        "report": report,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
 
 def _validate_magic_bytes(header: bytes, ext: str) -> None:
     """

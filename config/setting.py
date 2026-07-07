@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # Secret Token from Zoom Marketplace → App → Features → Webhooks.
     ZOOM_WEBHOOK_SECRET_TOKEN: SecretStr = SecretStr("")
 
+    # --- SMTP settings ---
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: SecretStr | None = None
+    SMTP_FROM_EMAIL: str = "noreply@salesintelligence.com"
+
 @lru_cache
 def get_settings() -> Settings:
     """Return a process-wide cached Settings instance."""
