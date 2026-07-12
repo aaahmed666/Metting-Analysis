@@ -340,3 +340,138 @@ class ManagerRepository:
             "avg_scores": {},
             "avg_talk_ratio": None,
         }
+
+    def get_roi_stats(self, member_ids: list[str]) -> dict:
+        """
+        Calculate ROI dashboard statistics for the given team member IDs.
+        """
+        if not member_ids:
+            return {
+                "closed_won_deals": 0,
+                "closed_won_value": 0.0,
+                "closed_lost_deals": 0,
+                "closed_lost_value": 0.0,
+                "win_rate": 0.0,
+                "total_deals_processed": 0,
+                "total_completed_meetings": 0,
+                "hours_saved": 0.0,
+                "estimated_savings_usd": 0.0,
+            }
+
+        try:
+            deals_resp = (
+                self.client.table("Deals")
+                .select("deal_stage, value")
+                .in_("user_id", member_ids)
+                .execute()
+            )
+            deals = deals_resp.data or []
+
+            closed_won_count = 0
+            closed_won_val = 0.0
+            closed_lost_count = 0
+            closed_lost_val = 0.0
+
+            for d in deals:
+                stage = (d.get("deal_stage") or "").lower().strip()
+                val = float(d.get("value") or 0.0)
+                if stage == "closed_won":
+                    closed_won_count += 1
+                    closed_won_val += val
+                elif stage == "closed_lost":
+                    closed_lost_count += 1
+                    closed_lost_val += val
+
+            total_closed = closed_won_count + closed_lost_count
+            win_rate = round((closed_won_count / total_closed * 100), 1) if total_closed else 0.0
+
+            meetings_count_resp = (
+                self.client.table("Meetings")
+                .select("id", count="exact")
+                .in_("user_id", member_ids)
+                .eq("status", "completed")
+                .execute()
+            )
+            completed_meetings = meetings_count_resp.count or 0
+
+            # Assume 30 minutes (0.5 hours) saved per meeting review, and $40/hour supervisor rate
+            hours_saved = completed_meetings * 0.5
+            savings_usd = hours_saved * 40.0
+
+            return {
+                "closed_won_deals": closed_won_count,
+                "closed_won_value": closed_won_val,
+                "closed_lost_deals": closed_lost_count,
+                "closed_lost_value": closed_lost_val,
+                "win_rate": win_rate,
+                "total_deals_processed": len(deals),
+                "total_completed_meetings": completed_meetings,
+                "hours_saved": hours_saved,
+                "estimated_savings_usd": savings_usd,
+            }
+        except Exception as exc:
+            raise Exception(f"Failed to calculate ROI stats: {exc}")
+
+    def get_meetings_export_data(self, member_ids: list[str]) -> list[dict]:
+        """
+        Fetch all meetings and reports data for exporting to CSV.
+        """
+        if not member_ids:
+            return []
+
+        try:
+            meetings_resp = (
+                self.client.table("Meetings")
+                .select("id, meeting_date, status, source, duration_seconds, user_id, Users(full_name, email)")
+                .in_("user_id", member_ids)
+                .order("meeting_date", desc=True)
+                .execute()
+            )
+            meetings = meetings_resp.data or []
+            if not meetings:
+                return []
+
+            meeting_ids = [m["id"] for m in meetings]
+
+            reports_resp = (
+                self.client.table("Meeting_Reports")
+                .select("meeting_id, total_score, grade, talk_ratio, discovery_score, objection_score, closing_score, listening_score, next_steps_score")
+                .in_("meeting_id", meeting_ids)
+                .execute()
+            )
+            reports_map = {r["meeting_id"]: r for r in (reports_resp.data or [])}
+
+            export_rows = []
+            for m in meetings:
+                user_info = m.pop("Users", None) or {}
+                # Handle single object unpack from Supabase relation
+                if isinstance(user_info, list) and user_info:
+                    user_info = user_info[0]
+                rep_name = user_info.get("full_name", "N/A")
+                rep_email = user_info.get("email", "N/A")
+
+                report = reports_map.get(m["id"], {})
+
+                row = {
+                    "meeting_id": m["id"],
+                    "meeting_date": m.get("meeting_date")[:16] if m.get("meeting_date") else "N/A",
+                    "status": m.get("status"),
+                    "source": m.get("source"),
+                    "duration_minutes": round(m.get("duration_seconds", 0) / 60, 1) if m.get("duration_seconds") else 0.0,
+                    "representative_name": rep_name,
+                    "representative_email": rep_email,
+                    "total_score": report.get("total_score", "N/A"),
+                    "grade": report.get("grade", "N/A"),
+                    "talk_ratio_pct": f"{report.get('talk_ratio', 0)}%" if report.get("talk_ratio") is not None else "N/A",
+                    "discovery_score": report.get("discovery_score", "N/A"),
+                    "objection_score": report.get("objection_score", "N/A"),
+                    "closing_score": report.get("closing_score", "N/A"),
+                    "listening_score": report.get("listening_score", "N/A"),
+                    "next_steps_score": report.get("next_steps_score", "N/A"),
+                }
+                export_rows.append(row)
+
+            return export_rows
+        except Exception as exc:
+            raise Exception(f"Failed to fetch meetings export data: {exc}")
+
