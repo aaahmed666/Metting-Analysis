@@ -4,6 +4,10 @@ Purpose: Constructs and configures the Celery app instance (broker, result
          backend, serialization) shared by all background tasks.
 """
 from celery import Celery
+import sys
+import os
+
+sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from config.setting import get_settings
 from core.logging import configure_logging

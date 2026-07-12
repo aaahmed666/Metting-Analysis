@@ -47,18 +47,16 @@ class GeminiClient:
 
     def __init__(self) -> None:
         settings = get_settings()
-        if settings.GOOGLE_APPLICATION_CREDENTIALS:
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.GOOGLE_APPLICATION_CREDENTIALS
-            logger.info("GeminiClient: Initializing with Vertex AI")
-            self.client = genai.Client(
-                vertexai=True,
-                project=settings.GOOGLE_PROJECT_ID,
-                location=settings.VERTEX_AI_REGION or "us-central1"
-            )
+        api_key = settings.GEMINI_API_KEY.get_secret_value()
+        
+        if api_key:
+            genai.configure(api_key=api_key)
         else:
-            logger.info("GeminiClient: Initializing with Gemini Developer API")
-            api_key = settings.GEMINI_API_KEY.get_secret_value()
-            self.client = genai.Client(api_key=api_key or None)
+            # Fall back to ADC (Application Default Credentials)
+            import os
+            if settings.GOOGLE_APPLICATION_CREDENTIALS:
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.GOOGLE_APPLICATION_CREDENTIALS
+
         self._model_name: str = getattr(settings, "VERTEX_AI_MODEL", "gemini-2.5-flash")
 
     # ------------------------------------------------------------------
