@@ -96,6 +96,8 @@ class WhisperTranscriber:
     """
     def __init__(self) -> None:
         settings = get_settings()
+        if not settings.OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is not configured but is required for Whisper transcription.")
         self._client = OpenAI(
             api_key=settings.OPENAI_API_KEY.get_secret_value()
         )
