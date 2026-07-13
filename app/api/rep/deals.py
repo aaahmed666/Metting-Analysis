@@ -30,6 +30,10 @@ async def list_deals(
     current_user: dict = Depends(_require_sales_rep),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
+    """
+    Returns a list of all sales deals belonging to the authenticated representative.
+    Useful for populating the representative's Kanban board.
+    """
     user_id = current_user["user_id"]
     repo = DealRepository(supabase)
     try:
@@ -54,6 +58,10 @@ async def update_stage(
     current_user: dict = Depends(_require_sales_rep),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
+    """
+    Updates the stage of a specific deal.
+    Valid stages are: 'lead', 'qualified', 'proposal', 'negotiation', 'closed_won', 'closed_lost'.
+    """
     user_id = current_user["user_id"]
     repo = DealRepository(supabase)
     try:

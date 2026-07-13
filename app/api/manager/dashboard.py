@@ -193,6 +193,9 @@ async def export_meetings(
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
+    """
+    Downloads a streaming CSV spreadsheet containing all completed meetings and their corresponding AI reports for the manager's team.
+    """
     from fastapi.responses import StreamingResponse
     import io
     import csv
@@ -508,6 +511,10 @@ async def get_team_roi(
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
+    """
+    Returns financial ROI metrics (Closed Won/Lost value, Win Rate, and time saved in USD)
+    for the manager's sales team.
+    """
     repo = ManagerRepository(supabase)
     org_id = repo.get_caller_org(current_user["user_id"])
     member_ids = repo.resolve_member_ids(

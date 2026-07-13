@@ -101,6 +101,10 @@ async def create_user(
     current_user: dict = Depends(require_admin),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
+    """
+    Creates a new employee account (Manager or Sales Rep) in the system.
+    Saves the user credentials to Supabase Auth and registers their profile in the database.
+    """
     repo   = AdminRepository(supabase)
     org_id = repo.get_org_id_for_admin(current_user["user_id"])
 
@@ -166,6 +170,10 @@ async def update_user(
     current_user: dict = Depends(require_admin),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
+    """
+    Updates the profile details (Full Name, Role, Team, active state) of an employee.
+    Use this endpoint to deactivate/freeze accounts by setting 'is_active' to False.
+    """
     repo   = AdminRepository(supabase)
     org_id = repo.get_org_id_for_admin(current_user["user_id"])
 
@@ -225,6 +233,9 @@ async def reset_user_password(
     current_user: dict = Depends(require_admin),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
+    """
+    Administratively resets/overrides the password of any employee.
+    """
     repo   = AdminRepository(supabase)
     org_id = repo.get_org_id_for_admin(current_user["user_id"])
 
