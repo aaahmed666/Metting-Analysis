@@ -52,6 +52,7 @@ from app.models.ai_analysis_models import (
     ScoringPayload,
     TranscriptPayload,
     TranscriptRecord,
+    SentimentEnum,
 )
 from app.repositories.ai_analysis_repository import AIAnalysisRepository, RepositoryError
 
@@ -303,7 +304,7 @@ def _resolve_sentiment(
         return None
 
     sentiment_raw = best_entry.sentiment.lower()
-    valid = {"positive", "neutral", "negative"}
+    valid = {e.value for e in SentimentEnum}
     return sentiment_raw if sentiment_raw in valid else None
 
 

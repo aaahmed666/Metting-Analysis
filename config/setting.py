@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     STORAGE_BACKEND: Literal["s3"] = "s3"
 
     # --- Task queue (Celery / Redis) ---
-    CELERY_BROKER_URL: str = "redis://redis:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://redis:6379/1"
-
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+    
     # Working directory for extracted audio + chunks.
     PROCESSING_DIR: str = "/tmp/media_processing"
 
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: SecretStr
     AWS_SECRET_ACCESS_KEY: SecretStr
 
-    OPENAI_API_KEY: SecretStr
+    OPENAI_API_KEY: SecretStr | None = None
     WHISPER_MODEL: str = "whisper-1"
     WHISPER_LANGUAGE: str | None = None
 
