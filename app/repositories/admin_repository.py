@@ -246,3 +246,38 @@ class AdminRepository:
             })
 
         return result
+
+    def create_user_record(self, user_id: str, email: str, full_name: str, role: str, org_id: str, team_id: Optional[str] = None) -> dict:
+        payload = {
+            "id": user_id,
+            "email": email,
+            "full_name": full_name,
+            "role": role,
+            "org_id": org_id,
+            "is_active": True,
+        }
+        if team_id:
+            payload["team_id"] = team_id
+
+        response = self.client.table("Users").insert(payload).execute()
+        if not response.data:
+            raise Exception("Failed to insert user row in database.")
+        return response.data[0]
+
+    def update_user_record(self, user_id: str, org_id: str, updates: dict) -> dict:
+        safe_keys = ["full_name", "role", "team_id", "is_active"]
+        db_updates = {k: v for k, v in updates.items() if k in safe_keys}
+        if not db_updates:
+            return {}
+
+        response = (
+            self.client.table("Users")
+            .update(db_updates)
+            .eq("id", user_id)
+            .eq("org_id", org_id)
+            .execute()
+        )
+        if not response.data:
+            raise Exception("User not found or database update failed.")
+        return response.data[0]
+
