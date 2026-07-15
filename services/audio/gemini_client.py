@@ -88,6 +88,7 @@ class GeminiClient:
                     response_mime_type="application/json",
                 ),
             )
+            response = model.generate_content(user)
         except Exception as exc:
             raise LLMClientError(f"Gemini API error: {exc}") from exc
 
