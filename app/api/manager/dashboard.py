@@ -182,8 +182,73 @@ async def list_rejected_meetings(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Route: Export Team Meetings to CSV
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/meetings/export",
+    summary="Export team meetings to CSV",
+)
+async def export_meetings(
+    current_user: dict = Depends(require_manager),
+    supabase: Client = Depends(get_supabase_admin_client),
+):
+    """
+    Downloads a streaming CSV spreadsheet containing all completed meetings and their corresponding AI reports for the manager's team.
+    """
+    from fastapi.responses import StreamingResponse
+    import io
+    import csv
+
+    repo = ManagerRepository(supabase)
+    org_id = repo.get_caller_org(current_user["user_id"])
+    member_ids = repo.resolve_member_ids(
+        user_id=current_user["user_id"],
+        role=current_user["role"],
+        org_id=org_id,
+    )
+
+    if not member_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No team members found to export data.",
+        )
+
+    try:
+        data = repo.get_meetings_export_data(member_ids)
+    except Exception as exc:
+        logger.error("export_meetings: failed to fetch data: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve export data.",
+        )
+
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No meetings found to export.",
+        )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(data[0].keys()))
+    writer.writeheader()
+    writer.writerows(data)
+    
+    output.seek(0)
+    mem = io.BytesIO(output.getvalue().encode("utf-8-sig"))
+    
+    headers = {
+        "Content-Disposition": "attachment; filename=team_meetings_report.csv"
+    }
+    
+    logger.info("Manager %s exported %d meetings to CSV", current_user["email"], len(data))
+    return StreamingResponse(mem, media_type="text/csv", headers=headers)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Route: Get Single Meeting + Full Report
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get(
     "/meetings/{meeting_id}",
@@ -432,3 +497,63 @@ async def get_leaderboard(
         status_code=status.HTTP_200_OK,
         content={"success": True, "leaderboard": entries},
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Route: ROI Dashboard Metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/dashboard/roi",
+    summary="Get team-wide ROI metrics",
+)
+async def get_team_roi(
+    current_user: dict = Depends(require_manager),
+    supabase: Client = Depends(get_supabase_admin_client),
+):
+    """
+    Returns financial ROI metrics (Closed Won/Lost value, Win Rate, and time saved in USD)
+    for the manager's sales team.
+    """
+    repo = ManagerRepository(supabase)
+    org_id = repo.get_caller_org(current_user["user_id"])
+    member_ids = repo.resolve_member_ids(
+        user_id=current_user["user_id"],
+        role=current_user["role"],
+        org_id=org_id,
+    )
+
+    if not member_ids:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "roi": {
+                    "closed_won_deals": 0,
+                    "closed_won_value": 0.0,
+                    "closed_lost_deals": 0,
+                    "closed_lost_value": 0.0,
+                    "win_rate": 0.0,
+                    "total_deals_processed": 0,
+                    "total_completed_meetings": 0,
+                    "hours_saved": 0.0,
+                    "estimated_savings_usd": 0.0,
+                }
+            }
+        )
+
+    try:
+        roi_stats = repo.get_roi_stats(member_ids)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "roi": roi_stats},
+        )
+    except Exception as exc:
+        logger.error("get_team_roi: failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to calculate ROI statistics.",
+        )
+
+
+

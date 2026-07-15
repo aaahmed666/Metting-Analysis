@@ -1,24 +1,3 @@
-"""
-Module: Manager – Team Management Routes
-Purpose: All team CRUD operations accessible by managers (and admins).
-
-Endpoints
-─────────
-GET    /manager/teams                        → list teams the caller manages
-POST   /manager/teams                        → create a new team
-GET    /manager/teams/{team_id}              → get one team + its members
-PATCH  /manager/teams/{team_id}              → rename a team
-DELETE /manager/teams/{team_id}              → delete a team (must be empty)
-GET    /manager/teams/{team_id}/members      → list members of a team
-POST   /manager/teams/{team_id}/members      → assign an existing user to a team
-DELETE /manager/teams/{team_id}/members/{user_id} → remove a user from a team
-
-Access control
-──────────────
-• require_manager  → both "manager" and "admin" roles may call these endpoints.
-• A manager can only act on teams inside their own org.
-• An admin may act on any team.
-"""
 from __future__ import annotations
 
 import logging
@@ -26,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from supabase import Client
 
-from app.core.dependencies import get_supabase_admin_client, get_current_user
-from app.core.rbac import require_manager
+from app.core.dependencies import get_supabase_admin_client
+from app.core.rbac import require_manager, require_admin
 from app.models.manager_models import (
     AssignMemberRequest,
     TeamCreateRequest,
@@ -40,13 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/manager/teams", tags=["Manager – Teams"])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _assert_team_belongs_to_org(team_id: str, org_id: str, supabase: Client) -> dict:
-    """Fetch a team and verify it belongs to the caller's org.
-    """
     response = (
         supabase.table("Teams")
         .select("*")
@@ -64,24 +37,25 @@ def _assert_team_belongs_to_org(team_id: str, org_id: str, supabase: Client) -> 
     return data
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Routes
-# ─────────────────────────────────────────────────────────────────────────────
+def _assert_manager_owns_team(current_user: dict, team: dict) -> None:
+    if current_user["role"] == "admin":
+        return
 
-@router.get("", summary="List teams managed by the caller")
+    if team.get("manager_id") != current_user["user_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You are not the manager of this team.",
+        )
+
+
+@router.get("")
 async def list_teams(
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """
-    Returns all teams inside the caller's organisation.
-    Admins see every team; managers see teams where they are manager_id.
-    """
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
-
     query = supabase.table("Teams").select("*").eq("org_id", org_id)
 
-    # Managers are scoped to teams they manage.
     if current_user["role"] == "manager":
         query = query.eq("manager_id", current_user["user_id"])
 
@@ -94,19 +68,14 @@ async def list_teams(
     })
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, summary="Create a new team")
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_team(
     body: TeamCreateRequest,
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """
-    Creates a team inside the caller's organisation.
-    The calling manager is automatically set as manager_id.
-    """
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
 
-    # Guard: team name must be unique within the org.
     exists = (
         supabase.table("Teams")
         .select("id")
@@ -143,15 +112,15 @@ async def create_team(
     })
 
 
-@router.get("/{team_id}", summary="Get team details + members")
+@router.get("/{team_id}")
 async def get_team(
     team_id: str,
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """Returns team metadata and a list of its members."""
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     team   = _assert_team_belongs_to_org(team_id, org_id, supabase)
+    _assert_manager_owns_team(current_user, team)
 
     members_response = (
         supabase.table("Users")
@@ -175,25 +144,24 @@ async def get_team(
     ]
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={
-        "success": True,
-        "team":    team,
-        "members": members,
+        "success":       True,
+        "team":          team,
+        "members":       members,
         "total_members": len(members),
     })
 
 
-@router.patch("/{team_id}", summary="Rename a team")
+@router.patch("/{team_id}")
 async def update_team(
     team_id: str,
     body: TeamUpdateRequest,
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """Updates the team name. Duplicate names within the org are rejected."""
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
-    _assert_team_belongs_to_org(team_id, org_id, supabase)
+    team   = _assert_team_belongs_to_org(team_id, org_id, supabase)
+    _assert_manager_owns_team(current_user, team)
 
-    # Guard: new name must be unique within the org (excluding this team).
     exists = (
         supabase.table("Teams")
         .select("id")
@@ -230,19 +198,15 @@ async def update_team(
     })
 
 
-@router.delete("/{team_id}", summary="Delete a team")
+@router.delete("/{team_id}")
 async def delete_team(
     team_id: str,
-    current_user: dict = Depends(require_manager),
+    current_user: dict = Depends(require_admin),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """
-    Deletes a team. Refuses if there are still active members assigned to it.
-    """
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
     _assert_team_belongs_to_org(team_id, org_id, supabase)
 
-    # Guard: cannot delete a team that still has members.
     members = (
         supabase.table("Users")
         .select("id")
@@ -260,7 +224,7 @@ async def delete_team(
         )
 
     supabase.table("Teams").delete().eq("id", team_id).execute()
-    logger.info("Team deleted: %s by %s", team_id, current_user["email"])
+    logger.info("Team deleted: %s by admin %s", team_id, current_user["email"])
 
     return JSONResponse(status_code=status.HTTP_200_OK, content={
         "success": True,
@@ -268,19 +232,15 @@ async def delete_team(
     })
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Member management inside a team
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get("/{team_id}/members", summary="List team members")
+@router.get("/{team_id}/members")
 async def list_team_members(
     team_id: str,
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """Returns all active users whose team_id matches."""
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
-    _assert_team_belongs_to_org(team_id, org_id, supabase)
+    team   = _assert_team_belongs_to_org(team_id, org_id, supabase)
+    _assert_manager_owns_team(current_user, team)
 
     response = (
         supabase.table("Users")
@@ -309,21 +269,17 @@ async def list_team_members(
     })
 
 
-@router.post("/{team_id}/members", summary="Assign an existing user to a team")
+@router.post("/{team_id}/members")
 async def assign_member(
     team_id: str,
     body: AssignMemberRequest,
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """
-    Assigns a pre-existing user (already in the Users table) to this team.
-    The user must belong to the same org as the manager.
-    """
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
-    _assert_team_belongs_to_org(team_id, org_id, supabase)
+    team   = _assert_team_belongs_to_org(team_id, org_id, supabase)
+    _assert_manager_owns_team(current_user, team)
 
-    # Verify target user exists in same org and is not already in another team.
     user_resp = (
         supabase.table("Users")
         .select("id, full_name, email, role, team_id, is_active")
@@ -346,13 +302,19 @@ async def assign_member(
             detail="Cannot assign a deactivated user to a team.",
         )
 
+    if current_user["role"] == "manager" and user["role"] in ("manager", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Managers can only assign sales_rep users. "
+                   "Assigning managers or admins requires admin access.",
+        )
+
     if user.get("team_id") == team_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of this team.",
         )
 
-    # Update the user's team_id.
     supabase.table("Users").update({"team_id": team_id}).eq("id", body.user_id).execute()
 
     logger.info(
@@ -366,21 +328,17 @@ async def assign_member(
     })
 
 
-@router.delete("/{team_id}/members/{user_id}", summary="Remove a user from a team")
+@router.delete("/{team_id}/members/{user_id}")
 async def remove_member(
     team_id: str,
     user_id: str,
     current_user: dict = Depends(require_manager),
     supabase: Client = Depends(get_supabase_admin_client),
 ):
-    """
-    Clears team_id on the target user (sets it to NULL).
-    Does NOT deactivate or delete the user account.
-    """
     org_id = ManagerRepository(supabase).get_caller_org(current_user["user_id"])
-    _assert_team_belongs_to_org(team_id, org_id, supabase)
+    team   = _assert_team_belongs_to_org(team_id, org_id, supabase)
+    _assert_manager_owns_team(current_user, team)
 
-    # Make sure the user actually belongs to this team.
     user_resp = (
         supabase.table("Users")
         .select("id, full_name, team_id")

@@ -14,7 +14,7 @@ Purpose: Houses every prompt template used by the sales-intelligence analysis
 SALES_INTELLIGENCE_SCHEMA = """\
 {
   "meeting_summary": {
-    "overall_sentiment": "positive | neutral | negative | mixed",
+    "overall_sentiment": "hot | warm | neutral | cold",
     "customer_engagement_score": 0,
     "likelihood_to_close_score": 0,
     "summary": ""
@@ -22,7 +22,7 @@ SALES_INTELLIGENCE_SCHEMA = """\
   "sentiment_trajectory": [
     {
       "timestamp": "",
-      "sentiment": "positive | neutral | negative",
+      "sentiment": "hot | warm | neutral | cold",
       "sentiment_score": 0.0,
       "reason": ""
     }
@@ -76,15 +76,15 @@ ANALYSIS REQUIREMENTS
 ──────────────────────────────────────────────────────────────────
 
 1. MEETING SUMMARY
-   • overall_sentiment  : "positive" | "neutral" | "negative" | "mixed"
+   • overall_sentiment  : "hot" | "warm" | "neutral" | "cold"
    • customer_engagement_score  : integer 0-100
    • likelihood_to_close_score  : integer 0-100
    • summary            : 2-4 sentence executive summary
 
 2. SENTIMENT TRAJECTORY
    • Split the conversation into meaningful segments.
-   • Assign a sentiment_score between -1.0 (strongly negative) and
-     1.0 (strongly positive); 0.0 = neutral.
+   • Assign a sentiment_score between -1.0 (cold) and
+     1.0 (hot); 0.0 = neutral.
    • Preserve the original transcript timestamp format.
    • Explain briefly what caused each sentiment shift.
 
@@ -122,7 +122,7 @@ ANALYSIS REQUIREMENTS
 STRICT RULES
 ──────────────────────────────────────────────────────────────────
 • Return ONLY valid JSON — no markdown fences, no prose.
-• Do not invent information not found in the transcript.
+• Do not invent information or new values not found in the schemas above (e.g. sentiment must be EXACTLY one of hot, warm, neutral, cold).
 • Use null or empty arrays [] when data is unavailable.
 • Timestamps must preserve the original transcript format exactly.
 • Confidence scores must be decimals between 0.0 and 1.0.

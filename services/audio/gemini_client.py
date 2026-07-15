@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from config.setting import get_settings
 
@@ -45,7 +47,16 @@ class GeminiClient:
 
     def __init__(self) -> None:
         settings = get_settings()
-        genai.configure(api_key=settings.GEMINI_API_KEY.get_secret_value())
+        api_key = settings.GEMINI_API_KEY.get_secret_value()
+        
+        if api_key:
+            genai.configure(api_key=api_key)
+        else:
+            # Fall back to ADC (Application Default Credentials)
+            import os
+            if settings.GOOGLE_APPLICATION_CREDENTIALS:
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.GOOGLE_APPLICATION_CREDENTIALS
+
         self._model_name: str = getattr(settings, "VERTEX_AI_MODEL", "gemini-2.5-flash")
 
     # ------------------------------------------------------------------
@@ -82,7 +93,7 @@ class GeminiClient:
             raise LLMClientError(f"Gemini API error: {exc}") from exc
 
         raw = (response.text or "").strip()
-        logger.debug("GeminiClient: received response  chars=%d", len(raw))
+        logger.debug("GeminiClient: received response chars=%d", len(raw))
 
         try:
             return json.loads(raw)
@@ -90,3 +101,4 @@ class GeminiClient:
             raise LLMClientError(
                 f"Gemini returned non-JSON content: {raw[:300]!r}"
             ) from exc
+

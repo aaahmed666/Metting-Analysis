@@ -19,7 +19,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -27,20 +27,23 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 class SentimentEnum(str, Enum):
-    positive = "positive"
-    neutral  = "neutral"
-    negative = "negative"
+    hot     = "hot"
+    warm    = "warm"
+    neutral = "neutral"
+    cold    = "cold"
 
 
 class SpeakerEnum(str, Enum):
-    rep     = "rep"
-    client  = "client"
-    unknown = "unknown"
+    sales_rep = "sales_rep"
+    client    = "client"
+    unknown   = "unknown"
 
 
 class SignalTypeEnum(str, Enum):
     risk        = "risk"
     opportunity = "opportunity"
+    competitor  = "competitor"
+    objection   = "objection"
 
 
 class GradeEnum(str, Enum):
@@ -51,6 +54,26 @@ class GradeEnum(str, Enum):
     D      = "D"
 
 
+class DealStageEnum(str, Enum):
+    qualified = "qualified"
+    proposal  = "proposal"
+    won       = "won"
+    lost      = "lost"
+
+
+class IndustryEnum(str, Enum):
+    restaurants = "restaurants"
+    clinics     = "clinics"
+    retail      = "retail"
+    other       = "other"
+
+
+class AlertLevelEnum(str, Enum):
+    yellow = "yellow"
+    orange = "orange"
+    red    = "red"
+
+
 # ---------------------------------------------------------------------------
 # AI Engine output sub-models
 # These mirror the JSON schema in ``prompts/sales_intelligence.py``.
@@ -58,18 +81,38 @@ class GradeEnum(str, Enum):
 
 class MeetingSummaryAI(BaseModel):
     """Top-level meeting summary block returned by the Gemini LLM."""
-    overall_sentiment:          str
+    overall_sentiment:          SentimentEnum
     customer_engagement_score:  int = Field(ge=0, le=100)
     likelihood_to_close_score:  int = Field(ge=0, le=100)
     summary:                    str
+
+    @field_validator("overall_sentiment", mode="before")
+    @classmethod
+    def fallback_sentiment(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_lower = v.lower()
+            if v_lower == "positive": return "warm"
+            if v_lower == "negative": return "cold"
+            if v_lower not in [e.value for e in SentimentEnum]: return "neutral"
+        return v
 
 
 class SentimentSegmentAI(BaseModel):
     """One entry in the sentiment_trajectory array."""
     timestamp:       str
-    sentiment:       str
+    sentiment:       SentimentEnum
     sentiment_score: float = Field(ge=-1.0, le=1.0)
     reason:          str
+
+    @field_validator("sentiment", mode="before")
+    @classmethod
+    def fallback_sentiment(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_lower = v.lower()
+            if v_lower == "positive": return "warm"
+            if v_lower == "negative": return "cold"
+            if v_lower not in [e.value for e in SentimentEnum]: return "neutral"
+        return v
 
 
 class OpeningScriptAI(BaseModel):
@@ -154,6 +197,13 @@ class TranscriptSegmentPayload(BaseModel):
     speaker: SpeakerEnum
     text:    str
 
+    @field_validator("speaker", mode="before")
+    @classmethod
+    def fallback_speaker(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.lower() not in [e.value for e in SpeakerEnum]:
+            return "unknown"
+        return v
+
 
 class TranscriptPayload(BaseModel):
     """Full transcription result for a single uploaded meeting file."""
@@ -195,13 +245,31 @@ class TranscriptRecord(BaseModel):
     start_time:   float
     end_time:     float
     text_segment: str
-    speaker:      str   # "rep" | "client" | "unknown"
-    sentiment:    Optional[str] = None   # "positive" | "neutral" | "negative"
+    speaker:      SpeakerEnum   # "sales_rep" | "client" | "unknown"
+    sentiment:    Optional[SentimentEnum] = None   # "hot" | "warm" | "neutral" | "cold"
+
+    @field_validator("speaker", mode="before")
+    @classmethod
+    def fallback_speaker(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.lower() not in [e.value for e in SpeakerEnum]: return "unknown"
+        return v
+
+    @field_validator("sentiment", mode="before")
+    @classmethod
+    def fallback_sentiment(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.lower() not in [e.value for e in SentimentEnum]: return "neutral"
+        return v
 
 
 class SignalRecord(BaseModel):
     """Maps one risk/opportunity keyword into the Signals table schema."""
     meeting_id:   str
     transcript_id: str       # FK → Transcripts.id
-    signal_type:  str        # "risk" | "opportunity"
+    signal_type:  SignalTypeEnum
     keyword:      str
+
+    @field_validator("signal_type", mode="before")
+    @classmethod
+    def fallback_signal(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.lower() not in [e.value for e in SignalTypeEnum]: return "risk"
+        return v

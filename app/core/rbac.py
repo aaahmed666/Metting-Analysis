@@ -14,7 +14,10 @@ def require_roles(*allowed_roles: str) -> Callable:
 
         if user_role not in allowed_roles:
             logger.warning(
-                f"Access denied: {current_user.get('email')} (role={user_role})"
+                "Access denied: %s (role=%s) — required: %s",
+                current_user.get("email"),
+                user_role,
+                ", ".join(allowed_roles),
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -27,5 +30,5 @@ def require_roles(*allowed_roles: str) -> Callable:
 
 
 require_authenticated = require_roles("sales_rep", "manager", "admin")
-require_manager       = require_roles("manager", "admin")
-require_admin         = require_roles("admin")
+require_manager = require_roles("manager", "admin")
+require_admin = require_roles("admin")

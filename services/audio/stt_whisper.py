@@ -96,6 +96,8 @@ class WhisperTranscriber:
     """
     def __init__(self) -> None:
         settings = get_settings()
+        if not settings.OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is not configured but is required for Whisper transcription.")
         self._client = OpenAI(
             api_key=settings.OPENAI_API_KEY.get_secret_value()
         )
@@ -194,12 +196,23 @@ class WhisperTranscriber:
             )
         raw_segments: list[_RawSegment] = []
         for seg in getattr(response, "segments", []):
+            if hasattr(seg, "get"):
+                s_id = seg.get("id", len(raw_segments))
+                s_start = seg.get("start", 0.0)
+                s_end = seg.get("end", 0.0)
+                s_text = seg.get("text", "")
+            else:
+                s_id = getattr(seg, "id", len(raw_segments))
+                s_start = getattr(seg, "start", 0.0)
+                s_end = getattr(seg, "end", 0.0)
+                s_text = getattr(seg, "text", "")
+
             raw_segments.append(
                 _RawSegment(
-                    id=int(seg.get("id", len(raw_segments))),
-                    start=float(seg.get("start", 0.0)),
-                    end=float(seg.get("end", 0.0)),
-                    text=seg.get("text", "").strip(),
+                    id=int(s_id),
+                    start=float(s_start),
+                    end=float(s_end),
+                    text=str(s_text).strip(),
                 )
             )
         detected_language: str | None = getattr(response, "language", None)
