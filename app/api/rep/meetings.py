@@ -156,21 +156,26 @@ async def upload_meeting(
             ),
         )
 
-    # ── Step 2: Read file into memory (with size guard) ──────────────────
-    content = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(content) > MAX_UPLOAD_BYTES:
+    # ── Step 2: File size guard ──────────────────────────────────────────────
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+
+    if file_size > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds the {MAX_UPLOAD_MB} MB limit.",
         )
-    if len(content) == 0:
+    if file_size == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty.",
         )
 
     # ── Step 3: Magic-byte validation ────────────────────────────────────
-    _validate_magic_bytes(content[:12], ext)
+    header = await file.read(12)
+    _validate_magic_bytes(header, ext)
+    await file.seek(0)
 
     # ── Step 4: Verify the deal exists and belongs to the rep ────────────
     try:
@@ -212,11 +217,12 @@ async def upload_meeting(
     content_type = CONTENT_TYPE_MAP.get(ext)
 
     try:
-        import io
+        from starlette.concurrency import run_in_threadpool
         storage   = get_storage()
-        stored    = storage.save(
+        stored    = await run_in_threadpool(
+            storage.save,
             file_id=file_id,
-            fileobj=io.BytesIO(content),
+            fileobj=file.file,
             content_type=content_type,
         )
         file_url  = stored.url
@@ -253,7 +259,7 @@ async def upload_meeting(
     logger.info(
         "upload_meeting: pipeline dispatched  meeting_id=%s  deal_id=%s  "
         "file=%s  size=%d bytes",
-        meeting_id, deal_id, original_filename, len(content),
+        meeting_id, deal_id, original_filename, file_size,
     )
 
     return MeetingUploadResponse(
