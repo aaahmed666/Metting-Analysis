@@ -50,3 +50,20 @@ class S3Storage:
             url = f"https://{s.S3_BUCKET}.s3.{s.S3_REGION}.amazonaws.com/{key}"
 
         return StoredFile(file_id=file_id, url=url, backend="s3", size=size)
+
+    def save_file(self, file_id: str, filepath: str, content_type: str | None) -> StoredFile:
+        s = self._settings
+        key = f"uploads/{file_id}"
+        size = os.path.getsize(filepath)
+
+        extra = {"ContentType": content_type} if content_type else {}
+        self._client.upload_file(filepath, s.S3_BUCKET, key, ExtraArgs=extra)
+
+        if s.S3_PUBLIC_BASE_URL:
+            url = f"{s.S3_PUBLIC_BASE_URL.rstrip('/')}/{key}"
+        elif s.S3_ENDPOINT_URL:
+            url = f"{s.S3_ENDPOINT_URL.rstrip('/')}/{s.S3_BUCKET}/{key}"
+        else:
+            url = f"https://{s.S3_BUCKET}.s3.{s.S3_REGION}.amazonaws.com/{key}"
+
+        return StoredFile(file_id=file_id, url=url, backend="s3", size=size)

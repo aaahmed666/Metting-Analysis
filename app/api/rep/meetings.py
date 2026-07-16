@@ -217,14 +217,28 @@ async def upload_meeting(
     content_type = CONTENT_TYPE_MAP.get(ext)
 
     try:
+        import os
+        import tempfile
+        import shutil
         from starlette.concurrency import run_in_threadpool
+        
         storage   = get_storage()
-        stored    = await run_in_threadpool(
-            storage.save,
-            file_id=file_id,
-            fileobj=file.file,
-            content_type=content_type,
-        )
+        
+        def _upload_s3():
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
+                shutil.copyfileobj(file.file, tmp)
+                tmp_path = tmp.name
+            try:
+                return storage.save_file(
+                    file_id=file_id,
+                    filepath=tmp_path,
+                    content_type=content_type,
+                )
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                    
+        stored    = await run_in_threadpool(_upload_s3)
         file_url  = stored.url
     except Exception as exc:
         logger.error(
