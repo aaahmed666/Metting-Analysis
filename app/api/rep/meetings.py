@@ -19,7 +19,7 @@ Flow
     ├── Create Meetings row  (status = "pending")
     ├── Stream file to S3   → StoredFile.url saved to Meetings.file_url
     ├── Mark Meetings as    status = "processing"
-    └── Dispatch Celery task  meeting.run_analysis
+    └── Run analysis in background (FastAPI BackgroundTasks — no Redis/Celery)
           ├── Downloads file from S3 to local temp path
           ├── Runs orchestrator.run_pipeline() Steps 2-8
           │     Step 2: ffmpeg extracts audio (handles video → audio)
@@ -37,6 +37,7 @@ from typing import Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -126,6 +127,7 @@ async def _require_sales_rep(current_user: dict = Depends(get_current_user)) -> 
     ),
 )
 async def upload_meeting(
+    background_tasks: BackgroundTasks,
     file:         UploadFile     = File(...,  description="Video or audio file (max 500 MB)"),
     deal_id:      str            = Form(...,  description="UUID of the deal this meeting belongs to"),
     meeting_date: Optional[str]  = Form(None, description="ISO-8601 datetime of the meeting (defaults to now)"),
@@ -262,16 +264,18 @@ async def upload_meeting(
         )
         # Non-fatal for the response — pipeline will still run
 
-    # ── Step 8: Dispatch the async analysis pipeline ─────────────────────
-    from workers.tasks import run_analysis_pipeline_task
-    run_analysis_pipeline_task.delay({
-        "meeting_id": meeting_id,
-        "s3_key":     s3_key,
-        "file_ext":   ext,
-    })
+    # ── Step 8: Schedule the analysis pipeline as a background task ──────
+    #   No Redis or Celery broker required — FastAPI runs this in a thread
+    #   pool after the HTTP response is sent.
+    background_tasks.add_task(
+        _run_pipeline_background,
+        meeting_id=meeting_id,
+        s3_key=s3_key,
+        file_ext=ext,
+    )
 
     logger.info(
-        "upload_meeting: pipeline dispatched  meeting_id=%s  deal_id=%s  "
+        "upload_meeting: pipeline scheduled  meeting_id=%s  deal_id=%s  "
         "file=%s  size=%d bytes",
         meeting_id, deal_id, original_filename, file_size,
     )
@@ -440,6 +444,220 @@ async def get_report(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _run_pipeline_background(
+    meeting_id: str,
+    s3_key: str,
+    file_ext: str,
+) -> None:
+    """
+    Run the full analysis pipeline synchronously inside a background thread.
+
+    This function is called by FastAPI's BackgroundTasks after the HTTP
+    response has already been sent to the client.  It replicates the logic
+    that was previously performed by the Celery task
+    ``meeting.run_analysis`` — without requiring a Redis broker or a
+    separate Celery worker process.
+
+    Steps
+    -----
+    1. Download the media file from S3 to a local temp file.
+    2. Run ``pipeline.orchestrator.run_pipeline()`` (Steps 2-8).
+    3. Send a completion / failure e-mail to the rep.
+    4. Clean up the temp file and working directory.
+    """
+    import os
+    import shutil
+    import tempfile
+
+    import boto3
+    from supabase import create_client
+
+    from config.setting import get_settings
+    from pipeline.orchestrator import run_pipeline
+
+    settings = get_settings()
+
+    logger.info(
+        "_run_pipeline_background: starting  meeting_id=%s  s3_key=%s",
+        meeting_id,
+        s3_key,
+    )
+
+    tmp_path: str | None = None
+    work_dir: str | None = None
+
+    supabase = create_client(
+        settings.SUPABASE_URL,
+        settings.SUPABASE_SERVICE_KEY,
+    )
+
+    try:
+        # ── 1. Download from S3 to a local temp file ──────────────────────
+        s3_client = boto3.client(
+            "s3",
+            region_name=settings.S3_REGION,
+            endpoint_url=settings.S3_ENDPOINT_URL,
+            aws_access_key_id=(
+                settings.AWS_ACCESS_KEY_ID.get_secret_value()
+                if settings.AWS_ACCESS_KEY_ID else None
+            ),
+            aws_secret_access_key=(
+                settings.AWS_SECRET_ACCESS_KEY.get_secret_value()
+                if settings.AWS_SECRET_ACCESS_KEY else None
+            ),
+        )
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp:
+            tmp_path = tmp.name
+            s3_client.download_fileobj(settings.S3_BUCKET, s3_key, tmp)
+
+        logger.info(
+            "_run_pipeline_background: downloaded from S3  meeting_id=%s  "
+            "local=%s  size=%d bytes",
+            meeting_id,
+            tmp_path,
+            os.path.getsize(tmp_path),
+        )
+
+        # ── 2. Prepare working directory for audio chunks ─────────────────
+        work_dir = os.path.join(settings.PROCESSING_DIR, meeting_id)
+        os.makedirs(work_dir, exist_ok=True)
+
+        # ── 3. Run the full pipeline ──────────────────────────────────────
+        result = run_pipeline(
+            meeting_id=meeting_id,
+            file_path=tmp_path,
+            supabase=supabase,
+            work_dir=work_dir,
+        )
+
+        logger.info(
+            "_run_pipeline_background: complete  meeting_id=%s  "
+            "report_id=%s  transcripts=%d  signals=%d",
+            meeting_id,
+            result.get("report_id"),
+            result.get("transcript_count", 0),
+            result.get("signal_count", 0),
+        )
+
+        # ── 4. Send success e-mail ────────────────────────────────────────
+        try:
+            meeting_resp = (
+                supabase.table("Meetings")
+                .select("user_id")
+                .eq("id", meeting_id)
+                .maybe_single()
+                .execute()
+            )
+            if meeting_resp and meeting_resp.data:
+                uid = meeting_resp.data.get("user_id")
+                user_resp = (
+                    supabase.table("Users")
+                    .select("email, full_name")
+                    .eq("id", uid)
+                    .maybe_single()
+                    .execute()
+                )
+                if user_resp and user_resp.data:
+                    email_to = user_resp.data.get("email")
+                    rep_name = user_resp.data.get("full_name") or "Sales Rep"
+
+                    report_data = None
+                    report_id = result.get("report_id")
+                    if report_id:
+                        rep_data_resp = (
+                            supabase.table("Meeting_Reports")
+                            .select("total_score, grade, ai_summary")
+                            .eq("id", report_id)
+                            .maybe_single()
+                            .execute()
+                        )
+                        report_data = rep_data_resp.data if rep_data_resp else None
+
+                    from services.integrations.email_notifier import send_meeting_analysis_email
+                    send_meeting_analysis_email(
+                        email_to=email_to,
+                        rep_name=rep_name,
+                        meeting_id=meeting_id,
+                        status="completed",
+                        report_data=report_data,
+                    )
+        except Exception as mail_exc:
+            logger.error(
+                "_run_pipeline_background: failed to send success email  "
+                "meeting_id=%s  error=%s",
+                meeting_id,
+                mail_exc,
+            )
+
+    except Exception as exc:
+        logger.error(
+            "_run_pipeline_background: pipeline failed  meeting_id=%s  error=%s",
+            meeting_id,
+            exc,
+        )
+        # Mark the meeting as rejected in the DB
+        try:
+            supabase.table("Meetings").update(
+                {"status": "rejected", "rejection_reason": str(exc)}
+            ).eq("id", meeting_id).execute()
+        except Exception as db_exc:
+            logger.error(
+                "_run_pipeline_background: could not mark meeting rejected  "
+                "meeting_id=%s  error=%s",
+                meeting_id,
+                db_exc,
+            )
+
+        # Send failure e-mail
+        try:
+            meeting_resp = (
+                supabase.table("Meetings")
+                .select("user_id")
+                .eq("id", meeting_id)
+                .maybe_single()
+                .execute()
+            )
+            if meeting_resp and meeting_resp.data:
+                uid = meeting_resp.data.get("user_id")
+                user_resp = (
+                    supabase.table("Users")
+                    .select("email, full_name")
+                    .eq("id", uid)
+                    .maybe_single()
+                    .execute()
+                )
+                if user_resp and user_resp.data:
+                    from services.integrations.email_notifier import send_meeting_analysis_email
+                    send_meeting_analysis_email(
+                        email_to=user_resp.data.get("email"),
+                        rep_name=user_resp.data.get("full_name") or "Sales Rep",
+                        meeting_id=meeting_id,
+                        status="failed",
+                        rejection_reason=str(exc),
+                    )
+        except Exception as mail_exc:
+            logger.error(
+                "_run_pipeline_background: failed to send failure email  "
+                "meeting_id=%s  error=%s",
+                meeting_id,
+                mail_exc,
+            )
+
+    finally:
+        # ── 5. Clean up temp files regardless of outcome ──────────────────
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+            logger.debug(
+                "_run_pipeline_background: removed temp file  path=%s", tmp_path
+            )
+        if work_dir and os.path.isdir(work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
+            logger.debug(
+                "_run_pipeline_background: removed work dir  path=%s", work_dir
+            )
 
 
 
